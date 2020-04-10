@@ -59,6 +59,8 @@ typedef struct DNNModule{
     DNNReturnType (*execute_model)(const DNNModel *model, DNNData *outputs, uint32_t nb_output);
     // Frees memory allocated for model.
     void (*free_model)(DNNModel **model);
+    // Sets device id for model loading.
+    void (*set_deviceid)(uint32_t gpuid);
 } DNNModule;
 
 // Initializes DNNModule depending on chosen backend.

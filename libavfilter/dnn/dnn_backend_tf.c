@@ -45,6 +45,9 @@ typedef struct TFModel{
     uint32_t nb_output;
 } TFModel;
 
+//CUDA device ID to support multi GPU
+int32_t deviceid = -1;
+
 static void free_buffer(void *data, size_t length)
 {
     av_freep(&data);
@@ -127,8 +130,8 @@ static DNNReturnType get_input_tf(void *model, DNNData *input, const char *input
     }
     TF_DeleteStatus(status);
 
-    // currently only NHWC is supported
-    av_assert0(dims[0] == 1);
+    //currently only NHWC is supported
+    av_assert0(dims[0] == 1 || dims[0] == -1);
     input->height = dims[1];
     input->width = dims[2];
     input->channels = dims[3];
@@ -197,6 +200,10 @@ static DNNReturnType set_input_output_tf(void *model, DNNData *input, const char
     }
 
     sess_opts = TF_NewSessionOptions();
+    // protobuf data for auto memory gpu_options.allow_growth=True
+    uint8_t config[4] = { 0x32, 0x02, 0x20, 0x1 };
+    TF_SetConfig(sess_opts, (void*)config, 4, tf_model->status);
+
     tf_model->session = TF_NewSession(tf_model->graph, sess_opts, tf_model->status);
     TF_DeleteSessionOptions(sess_opts);
     if (TF_GetCode(tf_model->status) != TF_OK)
@@ -223,6 +230,7 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
 {
     TF_Buffer *graph_def;
     TF_ImportGraphDefOptions *graph_opts;
+    char sdevice[64] = {0,};
 
     graph_def = read_graph(model_filename);
     if (!graph_def){
@@ -231,6 +239,12 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     tf_model->graph = TF_NewGraph();
     tf_model->status = TF_NewStatus();
     graph_opts = TF_NewImportGraphDefOptions();
+    if(deviceid >= 0) {
+        sprintf(sdevice,"/gpu:%d", deviceid);
+        TF_ImportGraphDefOptionsSetDefaultDevice(graph_opts, sdevice);
+        //restore default value
+        deviceid = -1;
+    }
     TF_GraphImportGraphDef(tf_model->graph, graph_def, graph_opts, tf_model->status);
     TF_DeleteImportGraphDefOptions(graph_opts);
     TF_DeleteBuffer(graph_def);
@@ -604,7 +618,10 @@ DNNModel *ff_dnn_load_model_tf(const char *model_filename)
     return model;
 }
 
-
+void ff_dnn_set_deviceid_tf(uint32_t gpuid)
+{
+    deviceid = gpuid;
+}
 
 DNNReturnType ff_dnn_execute_model_tf(const DNNModel *model, DNNData *outputs, uint32_t nb_output)
 {

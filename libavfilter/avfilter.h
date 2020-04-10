@@ -1162,6 +1162,22 @@ char *avfilter_graph_dump(AVFilterGraph *graph, const char *options);
 int avfilter_graph_request_oldest(AVFilterGraph *graph);
 
 /**
+ * Pre-load DNN model on each cuda device.
+ *
+ * @param modelpath     path to model file specifying network architecture and its parameters.
+ * @param input         the input name of the dnn network.
+ * @param output        the output name of the dnn network.
+ * @param deviceids     Cuda device ids for dnn model preloading, separated comma each ids, i.e 0,1
+ * @return  >=0 on success otherwise an error code.
+ */
+int avfilter_register_lvpdnn(char *modelpath, char *input, char *output, char *deviceids);
+
+/**
+ * Free all buffer for lvpdnn filters.
+ */
+void avfilter_remove_lvpdnn(void);
+
+/**
  * @}
  */
 

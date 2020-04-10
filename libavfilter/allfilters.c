@@ -278,6 +278,7 @@ extern AVFilter ff_vf_lut2;
 extern AVFilter ff_vf_lut3d;
 extern AVFilter ff_vf_lutrgb;
 extern AVFilter ff_vf_lutyuv;
+extern AVFilter ff_vf_lvpdnn;
 extern AVFilter ff_vf_maskedclamp;
 extern AVFilter ff_vf_maskedmax;
 extern AVFilter ff_vf_maskedmerge;
