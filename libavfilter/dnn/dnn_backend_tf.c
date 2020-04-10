@@ -53,6 +53,9 @@ typedef struct TFModel{
     TF_Status *status;
 } TFModel;
 
+//CUDA device ID to support multi GPU
+int32_t deviceid = -1;
+
 #define OFFSET(x) offsetof(TFContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption dnn_tensorflow_options[] = {
@@ -152,8 +155,8 @@ static DNNReturnType get_input_tf(void *model, DNNData *input, const char *input
     }
     TF_DeleteStatus(status);
 
-    // currently only NHWC is supported
-    av_assert0(dims[0] == 1);
+    //currently only NHWC is supported
+    av_assert0(dims[0] == 1 || dims[0] == -1);
     input->height = dims[1];
     input->width = dims[2];
     input->channels = dims[3];
@@ -203,6 +206,7 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     const TF_Operation *init_op;
     uint8_t *sess_config = NULL;
     int sess_config_length = 0;
+    char sdevice[64] = {0,};
 
     // prepare the sess config data
     if (tf_model->ctx.options.sess_config != NULL) {
@@ -264,6 +268,12 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     tf_model->graph = TF_NewGraph();
     tf_model->status = TF_NewStatus();
     graph_opts = TF_NewImportGraphDefOptions();
+    if(deviceid >= 0) {
+        sprintf(sdevice,"/gpu:%d", deviceid);
+        TF_ImportGraphDefOptionsSetDefaultDevice(graph_opts, sdevice);
+        //restore default value
+        deviceid = -1;
+    }
     TF_GraphImportGraphDef(tf_model->graph, graph_def, graph_opts, tf_model->status);
     TF_DeleteImportGraphDefOptions(graph_opts);
     TF_DeleteBuffer(graph_def);
@@ -278,8 +288,18 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     init_op = TF_GraphOperationByName(tf_model->graph, "init");
     sess_opts = TF_NewSessionOptions();
 
+    // FIXME: pass Livepeer filter config through the API
+    uint8_t lp_sess_config[4] = { 0x32, 0x02, 0x20, 0x1 };
+    if (lp_sess_config) {
+        TF_SetConfig(sess_opts, lp_sess_config, sess_config_length,tf_model->status);
+        if (TF_GetCode(tf_model->status) != TF_OK) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to set config for sess options with %s\n",
+                                      tf_model->ctx.options.sess_config);
+            return DNN_ERROR;
+        }
+    }
     if (sess_config) {
-        TF_SetConfig(sess_opts, sess_config, sess_config_length,tf_model->status);
+        /*TF_SetConfig(sess_opts, sess_config, sess_config_length,tf_model->status);*/
         av_freep(&sess_config);
         if (TF_GetCode(tf_model->status) != TF_OK) {
             av_log(ctx, AV_LOG_ERROR, "Failed to set config for sess options with %s\n",
@@ -708,6 +728,11 @@ DNNModel *ff_dnn_load_model_tf(const char *model_filename, DNNFunctionType func_
     model->func_type = func_type;
 
     return model;
+}
+
+void ff_dnn_set_deviceid_tf(uint32_t gpuid)
+{
+    deviceid = gpuid;
 }
 
 static DNNReturnType execute_model_tf(const DNNModel *model, const char *input_name, AVFrame *in_frame,

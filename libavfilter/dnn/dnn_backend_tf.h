@@ -34,6 +34,8 @@ DNNModel *ff_dnn_load_model_tf(const char *model_filename, DNNFunctionType func_
 DNNReturnType ff_dnn_execute_model_tf(const DNNModel *model, const char *input_name, AVFrame *in_frame,
                                       const char **output_names, uint32_t nb_output, AVFrame *out_frame);
 
+void ff_dnn_set_deviceid_tf(uint32_t deviceid);
+
 void ff_dnn_free_model_tf(DNNModel **model);
 
 #endif
