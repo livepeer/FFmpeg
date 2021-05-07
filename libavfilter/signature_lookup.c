@@ -200,6 +200,7 @@ static MatchingInfo* get_matching_parameters(AVFilterContext *ctx, SignatureCont
     /* initialize houghspace */
     for (i = 0; i < MAX_FRAMERATE; i++) {
         hspace[i] = av_malloc_array(2 * HOUGH_MAX_OFFSET + 1, sizeof(hspace_elem));
+		memset(hspace[i], 0x00, sizeof(hspace_elem) * (2 * HOUGH_MAX_OFFSET + 1));
         for (j = 0; j < HOUGH_MAX_OFFSET; j++) {
             hspace[i][j].score = 0;
             hspace[i][j].dist = 99999;
