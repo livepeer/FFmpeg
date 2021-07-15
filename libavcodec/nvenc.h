@@ -166,6 +166,8 @@ typedef struct NvencContext
     AVFifoBuffer *output_surface_ready_queue;
     AVFifoBuffer *timestamp_list;
 
+    int encoder_flushing;
+
     struct {
         void *ptr;
         int ptr_index;
