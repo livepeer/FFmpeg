@@ -291,7 +291,7 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     // FIXME: pass Livepeer filter config through the API
     uint8_t lp_sess_config[4] = { 0x32, 0x02, 0x20, 0x1 };
     if (lp_sess_config) {
-        TF_SetConfig(sess_opts, lp_sess_config, sess_config_length,tf_model->status);
+        TF_SetConfig(sess_opts, lp_sess_config, 4, tf_model->status);
         if (TF_GetCode(tf_model->status) != TF_OK) {
             av_log(ctx, AV_LOG_ERROR, "Failed to set config for sess options with %s\n",
                                       tf_model->ctx.options.sess_config);
