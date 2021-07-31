@@ -33,7 +33,6 @@
 #include "dnn_backend_native_layer_pad.h"
 #include "dnn_backend_native_layer_maximum.h"
 #include "dnn_io_proc.h"
-
 #include "compat/dnn/libtf_wrapper.h"
 
 typedef struct TFOptions{
@@ -52,6 +51,11 @@ typedef struct TFModel{
     TF_Graph *graph;
     TF_Session *session;
     TF_Status *status;
+    TF_Output input;
+    TF_Tensor *input_tensor;
+    TF_Output *outputs;
+    TF_Tensor **output_tensors;
+    uint32_t nb_output;
     void* libtensorflow;
     TFFunctions* tffns;
 } TFModel;
@@ -758,13 +762,16 @@ DNNModel *ff_dnn_load_model_tf(const char *model_filename, DNNFunctionType func_
         return NULL;
     }
 
+    if (load_libtensorflow(tf_model) != DNN_SUCCESS) {
+        return NULL;
+    }
+
     if (load_tf_model(tf_model, model_filename) != DNN_SUCCESS){
         if (load_native_model(tf_model, model_filename) != DNN_SUCCESS){
             av_freep(&tf_model->tffns);
             TF_FREE_FUNC(tf_model->libtensorflow);
             av_freep(&tf_model);
             av_freep(&model);
-
             return NULL;
         }
     }
@@ -924,6 +931,22 @@ void ff_dnn_free_model_tf(DNNModel **model)
         if (tf_model->status){
             tf_model->tffns->TF_DeleteStatus(tf_model->status);
         }
+        if (tf_model->input_tensor){
+            tf_model->tffns->TF_DeleteTensor(tf_model->input_tensor);
+        }
+        if (tf_model->output_tensors) {
+            for (uint32_t i = 0; i < tf_model->nb_output; ++i) {
+                if (tf_model->output_tensors[i]) {
+                    tf_model->tffns->TF_DeleteTensor(tf_model->output_tensors[i]);
+                    tf_model->output_tensors[i] = NULL;
+                }
+            }
+        }
+
+        av_freep(&tf_model->tffns);
+        TF_FREE_FUNC(tf_model->libtensorflow);
+        av_freep(&tf_model->outputs);
+        av_freep(&tf_model->output_tensors);
         av_freep(&tf_model);
         av_freep(model);
     }
