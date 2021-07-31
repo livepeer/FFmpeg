@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Sergey Lavrushkin
+ * Copyright (c) 2021 Akul Penugonda
  *
  * This file is part of FFmpeg.
  *
