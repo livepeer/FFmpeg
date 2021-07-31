@@ -1796,7 +1796,6 @@ EXTERNAL_LIBRARY_LIST="
     libspeex
     libsrt
     libssh
-    libtensorflow
     libtesseract
     libtheora
     libtwolame
@@ -1854,6 +1853,7 @@ HWACCEL_LIBRARY_LIST="
     mmal
     omx
     opencl
+    libtensorflow
 "
 
 DOCUMENT_LIST="
@@ -2611,7 +2611,7 @@ cbs_mpeg2_select="cbs"
 cbs_vp9_select="cbs"
 dct_select="rdft"
 dirac_parse_select="golomb"
-dnn_suggest="libtensorflow"
+dnn_suggest="libdl LoadLibrary"
 error_resilience_select="me_cmp"
 faandct_deps="faan"
 faandct_select="fdctdsp"
@@ -2895,6 +2895,7 @@ vaapi_x11_deps="xlib"
 videotoolbox_hwaccel_deps="videotoolbox pthreads"
 videotoolbox_hwaccel_extralibs="-framework QuartzCore"
 xvmc_deps="X11_extensions_XvMClib_h"
+libtensorflow_deps_any="libdl LoadLibrary"
 
 h263_vaapi_hwaccel_deps="vaapi"
 h263_vaapi_hwaccel_select="h263_decoder"
@@ -6316,7 +6317,7 @@ enabled libsoxr           && require libsoxr soxr.h soxr_create -lsoxr
 enabled libssh            && require_pkg_config libssh libssh libssh/sftp.h sftp_init
 enabled libspeex          && require_pkg_config libspeex speex speex/speex.h speex_decoder_init
 enabled libsrt            && require_pkg_config libsrt "srt >= 1.3.0" srt/srt.h srt_socket
-enabled libtensorflow     && require libtensorflow tensorflow/c/c_api.h TF_Version -ltensorflow
+enabled libtensorflow     && require_headers "tensorflow/c/c_api.h"
 enabled libtesseract      && require_pkg_config libtesseract tesseract tesseract/capi.h TessBaseAPICreate
 enabled libtheora         && require libtheora theora/theoraenc.h th_info_init -ltheoraenc -ltheoradec -logg
 enabled libtls            && require_pkg_config libtls libtls tls.h tls_configure
