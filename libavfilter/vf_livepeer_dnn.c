@@ -44,7 +44,6 @@ typedef struct LivepeerContext {
     int                 sample_rate;    ///< Run classification after every <sample_rate> frames
     char                *log_filename;  ///< File name
     uint64_t            frame_num;      ///< Frame counter
-    int                 device_id;      ///< GPU ID for Tensorflow
 } LivepeerContext;
 
 #define OFFSET(x) offsetof(LivepeerContext, x)
@@ -58,9 +57,10 @@ static const AVOption livepeer_options[] = {
     { "model", "path to model file specifying network architecture and its parameters", OFFSET(dnnctx.model_filename), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 0, FLAGS },
     { "input",       "input name of the model",     OFFSET(dnnctx.model_inputname),  AV_OPT_TYPE_STRING,    { .str = "x" },  0, 0, FLAGS },
     { "output",      "output name of the model",    OFFSET(dnnctx.model_outputname), AV_OPT_TYPE_STRING,    { .str = "y" },  0, 0, FLAGS },
+    // default session_config = {allow_growth: true}
+    { "backend_configs",     "backend configs",     OFFSET(dnnctx.backend_options),  AV_OPT_TYPE_STRING,    { .str = "sess_config=0x01200232" }, 0, 0, FLAGS },
     { "sample", "frame samplerate", OFFSET(sample_rate), AV_OPT_TYPE_INT, { .i64 = 1   },  0, 200, FLAGS },
     { "logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, FLAGS },
-    { "device", "GPU id for model loading", OFFSET(device_id), AV_OPT_TYPE_INT, { .i64 = 0   },  0, 16, FLAGS },
     { NULL }
 };
 
@@ -132,10 +132,6 @@ static av_cold int init(AVFilterContext *context)
     }
 
     ctx->dnnctx.model->post_proc = post_proc;
-
-    if (ctx->dnnctx.dnn_module->set_deviceid) {
-        ctx->dnnctx.dnn_module->set_deviceid(ctx->device_id);
-    }
 
     return ret;
 }
