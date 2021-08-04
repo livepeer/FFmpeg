@@ -41,9 +41,7 @@ typedef struct LivepeerContext {
     struct AVFrame      *swscaleframe;  ///< Scaled image
     FILE                *logfile;       ///< (Optional) Log classification probabilities in this file
 
-    int                 sample_rate;    ///< Run classification after every <sample_rate> frames
     char                *log_filename;  ///< File name
-    uint64_t            frame_num;      ///< Frame counter
 } LivepeerContext;
 
 #define OFFSET(x) offsetof(LivepeerContext, x)
@@ -59,7 +57,6 @@ static const AVOption livepeer_options[] = {
     { "output",      "output name of the model",    OFFSET(dnnctx.model_outputname), AV_OPT_TYPE_STRING,    { .str = "y" },  0, 0, FLAGS },
     // default session_config = {allow_growth: true}
     { "backend_configs",     "backend configs",     OFFSET(dnnctx.backend_options),  AV_OPT_TYPE_STRING,    { .str = "sess_config=0x01200232" }, 0, 0, FLAGS },
-    { "sample", "frame samplerate", OFFSET(sample_rate), AV_OPT_TYPE_INT, { .i64 = 1   },  0, 200, FLAGS },
     { "logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, FLAGS },
     { NULL }
 };
@@ -120,7 +117,6 @@ static av_cold int init(AVFilterContext *context)
         av_log(ctx, AV_LOG_INFO, "output file for log is not specified\n");
     }
 
-    ctx->frame_num = 0;
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
 
     // Pre-execute the model after loading the input/output dimensions to
@@ -208,38 +204,31 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterLink *outlink = context->outputs[0];
     DNNReturnType dnn_result;
 
-    ctx->frame_num++;
-
-    // we only run our DNN model for every nth frame where n is sample_rate
-    if (ctx->sample_rate > 0 && ctx->frame_num % ctx->sample_rate == 0) {
-        AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
-        if (!out){
-            av_log(context, AV_LOG_ERROR, "could not allocate memory for output frame\n");
-            av_frame_free(&in);
-            return AVERROR(ENOMEM);
-        }
-        av_frame_copy_props(out, in);
-
-        // Scale frame and transform pixel format to what DNN expects.
-        sws_scale(ctx->sws_rgb_scale, (const uint8_t **)in->data, in->linesize,
-                  0, in->height, (uint8_t * const*)(&ctx->swscaleframe->data),
-                  ctx->swscaleframe->linesize);
-
-        // Execute model.
-        dnn_result = ff_dnn_execute_model(&ctx->dnnctx, ctx->swscaleframe, out);
-
-        // Copy classification metadata to input frame (check if we can use output frame)
-        av_dict_copy(&in->metadata, out->metadata, 0);
-
-        if (dnn_result != DNN_SUCCESS){
-            av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
-            av_frame_free(&in);
-            av_frame_free(&out);
-            return AVERROR(EIO);
-        }
-        return ff_filter_frame(outlink, in);
+    AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
+    if (!out){
+        av_log(context, AV_LOG_ERROR, "could not allocate memory for output frame\n");
+        av_frame_free(&in);
+        return AVERROR(ENOMEM);
     }
+    av_frame_copy_props(out, in);
 
+    // Scale frame and transform pixel format to what DNN expects.
+    sws_scale(ctx->sws_rgb_scale, (const uint8_t **)in->data, in->linesize,
+              0, in->height, (uint8_t * const*)(&ctx->swscaleframe->data),
+              ctx->swscaleframe->linesize);
+
+    // Execute model.
+    dnn_result = ff_dnn_execute_model(&ctx->dnnctx, ctx->swscaleframe, out);
+
+    // Copy classification metadata to input frame (check if we can use output frame)
+    av_dict_copy(&in->metadata, out->metadata, 0);
+
+    if (dnn_result != DNN_SUCCESS){
+        av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
+        av_frame_free(&in);
+        av_frame_free(&out);
+        return AVERROR(EIO);
+    }
     return ff_filter_frame(outlink, in);
 }
 
