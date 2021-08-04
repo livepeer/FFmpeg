@@ -68,6 +68,46 @@ AVFILTER_DEFINE_CLASS(livepeer);
 
 static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context);
 
+static int pre_exec(AVFilterContext *context)
+{
+    LivepeerContext *ctx = context->priv;
+    AVFrame *frames[2];
+    DNNData input;
+    int ret = 0;
+
+    ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
+
+    // Initialize empty input and output frames with the dimensions the model expects
+    for (int i = 0; i < 2; i++) {
+        frames[i] = av_frame_alloc();
+        if (!frames[i]) {
+            ret = AVERROR(ENOMEM);
+            goto pre_exec_error;
+        }
+        frames[i]->format = AV_PIX_FMT_RGB24;
+        frames[i]->width  = input.width;
+        frames[i]->height = input.height;
+
+        ret = av_frame_get_buffer(frames[i], 0);
+        if (ret < 0) {
+            goto pre_exec_error;
+        }
+    }
+
+    // Execute model.
+    DNNReturnType dnn_result = ff_dnn_execute_model(&ctx->dnnctx, frames[0], frames[1]);
+    if (dnn_result != DNN_SUCCESS){
+        av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
+        ret = AVERROR(EIO);
+        goto pre_exec_error;
+    }
+
+pre_exec_error:
+    av_frame_free(&frames[0]);
+    av_frame_free(&frames[1]);
+    return ret;
+}
+
 static av_cold int init(AVFilterContext *context)
 {
     LivepeerContext *ctx = context->priv;
@@ -82,6 +122,15 @@ static av_cold int init(AVFilterContext *context)
 
     ctx->frame_num = 0;
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
+
+    // Pre-execute the model after loading the input/output dimensions to
+    // allocate the tensors before the first frame comes in
+    int ret2 = pre_exec(context);
+    if (ret2 < 0) {
+        av_log(ctx, AV_LOG_ERROR, "pre-exec for the model failed\n");
+        return ret2;
+    }
+
     ctx->dnnctx.model->post_proc = post_proc;
 
     if (ctx->dnnctx.dnn_module->set_deviceid) {
