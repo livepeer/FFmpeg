@@ -1187,7 +1187,7 @@ int avfilter_compare_sign_bypath(char *signpath1, char *signpath2);
  * @param len2            the length of the second signature buffer.
  * @return  <0: error, 0: no matchiing 1: partial matching 2: whole matching.
  */
-int avfilter_compare_sign_bybuff(void *signbuf1, int len1, void *signbuf2, int len2);
+int avfilter_compare_sign_bybuff(uint8_t *signbuf1, int len1, uint8_t *signbuf2, int len2);
 
 /**
  * @}

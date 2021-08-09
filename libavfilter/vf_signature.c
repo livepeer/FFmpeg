@@ -43,11 +43,11 @@
 #define INPUTS_COUNT 2
 
 typedef struct BoundedCoarseSignature {
-	// StartFrameOfSegment and EndFrameOfSegment
-	uint32_t firstIndex, lastIndex;
-	// StartMediaTimeOfSegment and EndMediaTimeOfSegment
-	uint64_t firstPts, lastPts;
-	CoarseSignature *cSign;
+    // StartFrameOfSegment and EndFrameOfSegment
+    uint32_t firstIndex, lastIndex;
+    // StartMediaTimeOfSegment and EndMediaTimeOfSegment
+    uint64_t firstPts, lastPts;
+    CoarseSignature *cSign;
 } BoundedCoarseSignature;
 
 static const AVOption signature_options[] = {
@@ -759,282 +759,275 @@ static int config_output(AVFilterLink *outlink)
 }
 
 
-static void release_streamContext(StreamContext *sc)
+static void release_streamcontext(StreamContext *sc)
 {
-	free(sc->coarsesiglist);
-	free(sc->finesiglist);
-}
-static int finesignaturecompare(const void* p1, const void* p2)
-{
-	FineSignature *a = (FineSignature*)p1;
-	FineSignature *b = (FineSignature*)p2;
-	if (a->pts == b->pts)
-		return 0;
-	else if (a->pts < b->pts)
-		return -1;
-	else
-		return 1;
+    free(sc->coarsesiglist);
+    free(sc->finesiglist);
 }
 static int get_filesize(const char *filename)
 {
-	int fileLength = 0;
-	FILE *f = NULL;
-	f = fopen(filename, "rb");
-	fseek(f, 0, SEEK_END);
-	fileLength = ftell(f);
-	fclose(f);
-	return fileLength;
+    int fileLength = 0;
+    FILE *f = NULL;
+    f = fopen(filename, "rb");
+    if(f != NULL) {
+        fseek(f, 0, SEEK_END);
+        fileLength = ftell(f);
+        fclose(f);
+    }
+    return fileLength;
 }
 static uint8_t * get_filebuffer(const char *filename, int* fileLength)
 {
-	FILE *f = NULL;
-	unsigned int rResult = 0, paddedLength = 0;
-	uint8_t *buffer = NULL;
-	GetBitContext bitContext = { 0 };
-	//check input parameters
-	if (strlen(filename) <= 0) return buffer;
-	f = fopen(filename, "rb");
-	if (f == NULL) return buffer;
+    FILE *f = NULL;
+    unsigned int readLength, paddedLength = 0;
+    uint8_t *buffer = NULL;
 
-	*fileLength = get_filesize(filename);
+    //check input parameters
+    if (strlen(filename) <= 0) return buffer;
+    f = fopen(filename, "rb");
+    if (f == NULL) return buffer;
 
-	// Cast to float is necessary to avoid int division
-	paddedLength = ceil(*fileLength / (float)AV_INPUT_BUFFER_PADDING_SIZE)*AV_INPUT_BUFFER_PADDING_SIZE + AV_INPUT_BUFFER_PADDING_SIZE;
-	buffer = (uint8_t*)calloc(paddedLength, sizeof(uint8_t));
-
-	// Read entire file into memory
-	rResult = fread(buffer, sizeof(uint8_t), *fileLength, f);
-	fclose(f);
-	f = NULL;
+    *fileLength = get_filesize(filename);
+    if(*fileLength > 0) {
+        // Cast to float is necessary to avoid int division
+        paddedLength = ceil(*fileLength / (float)AV_INPUT_BUFFER_PADDING_SIZE)*AV_INPUT_BUFFER_PADDING_SIZE + AV_INPUT_BUFFER_PADDING_SIZE;
+        buffer = (uint8_t*)av_calloc(paddedLength, sizeof(uint8_t));
+        if (!buffer) {
+            fclose(f);
+            NULL;
+        }
+        // Read entire file into memory
+        readLength = fread(buffer, sizeof(uint8_t), *fileLength, f);
+        if(readLength != *fileLength) {
+            free(buffer);
+            buffer = NULL;
+        }
+    }
+    fclose(f);
     return buffer;
 }
 
 static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
 {
-	int ret = 0;
+    int ret = 0;
 
-	unsigned int numOfSegments = 0;
-	GetBitContext bitContext = { 0 };
+    unsigned int numOfSegments = 0;
+    GetBitContext bitContext = { 0 };
+    BoundedCoarseSignature *bCs;
+    unsigned int i, j, k;
+    int totalLength = 8 * fileLength;
+    int finesigncount = 0;
+    BoundedCoarseSignature *bCoarseList;
 
-	// BE CAREFUL, THE LENGTH IS SPECIFIED IN BITS NOT BYTES
-	init_get_bits(&bitContext, buffer, 8 * fileLength);
-	// libavcodec
+    init_get_bits(&bitContext, buffer, totalLength);
 
-	// Skip the following data:
-	// - NumOfSpatial Regions: (32 bits) only 1 supported
-	// - SpatialLocationFlag: (1 bit) always the whole image
-	// - PixelX_1: (16 bits) always 0
-	// - PixelY_1: (16 bits) always 0
-	skip_bits(&bitContext, 32 + 1 + 16 * 2);
+    // Skip the following data:
+    // - NumOfSpatial Regions: (32 bits) only 1 supported
+    // - SpatialLocationFlag: (1 bit) always the whole image
+    // - PixelX_1: (16 bits) always 0
+    // - PixelY_1: (16 bits) always 0
+    skip_bits(&bitContext, 32 + 1 + 16 * 2);
 
+    // width - 1, and height - 1
+    // PixelX_2: (16 bits) is width - 1
+    // PixelY_2: (16 bits) is height - 1
+    sc->w = get_bits(&bitContext, 16);
+    sc->h = get_bits(&bitContext, 16);
+    ++sc->w;
+    ++sc->h;
 
-	// width - 1, and height - 1
-	// PixelX_2: (16 bits) is width - 1
-	// PixelY_2: (16 bits) is height - 1
-	sc->w = get_bits(&bitContext, 16);
-	sc->h = get_bits(&bitContext, 16);
-	++sc->w;
-	++sc->h;
+    // StartFrameOfSpatialRegion, always 0
+    skip_bits(&bitContext, 32);
 
-	// StartFrameOfSpatialRegion, always 0
-	skip_bits(&bitContext, 32);
+    // NumOfFrames
+    // it's the number of fine signatures
+    sc->lastindex = get_bits_long(&bitContext, 32);
 
-	// NumOfFrames
-	// it's the number of fine signatures
-	sc->lastindex = get_bits_long(&bitContext, 32);
+    // MediaTimeUnit
+    // sc->time_base.den / sc->time_base.num
+    // hoping num is 1, other values are vague
+    // den/num might be greater than 16 bit, so cutting it
+    //put_bits(&buf, 16, 0xFFFF & (sc->time_base.den / sc->time_base.num));
 
-	// sc->time_base.den / sc->time_base.num
-	// hoping num is 1, other values are vague
-	// den/num might be greater than 16 bit, so cutting it
-	//put_bits(&buf, 16, 0xFFFF & (sc->time_base.den / sc->time_base.num));
-	// MediaTimeUnit
+    sc->time_base.den = get_bits(&bitContext, 16);
+    sc->time_base.num = 1;
 
-	sc->time_base.den = get_bits(&bitContext, 16);
-	sc->time_base.num = 1;
+    // Skip the following data
+    // - MediaTimeFlagOfSpatialRegion: (1 bit) always 1
+    // - StartMediaTimeOfSpatialRegion: (32 bits) always 0
+    // - EndMediaTimeOfSpatialRegion: (32 bits)
+    skip_bits(&bitContext, 1 + 32*2);
 
-	// Skip the following data
-	// - MediaTimeFlagOfSpatialRegion: (1 bit) always 1
-	// - StartMediaTimeOfSpatialRegion: (32 bits) always 0
-	skip_bits(&bitContext, 1 + 32);
+    // Coarse signatures
+    // numOfSegments = number of coarse signatures
+    numOfSegments = get_bits_long(&bitContext, 32);
 
-	// EndMediaTimeOfSpatialRegion
-	uint64_t lastCoarsePts = get_bits_long(&bitContext, 32);
+    sc->coarsesiglist = (CoarseSignature*)av_calloc(numOfSegments, sizeof(CoarseSignature));
 
-	// Coarse signatures
-	// numOfSegments = number of coarse signatures
-	numOfSegments = get_bits_long(&bitContext, 32);
+    bCoarseList = (BoundedCoarseSignature*)av_calloc(numOfSegments, sizeof(BoundedCoarseSignature));
 
-	// Reading from binary signature return a wrong number of segments
-	// numOfSegments = (sc->lastindex + 44)/45;
-	//skip_bits(&bitContext, 32);
+    // CoarseSignature loading
+    for (i = 0; i < numOfSegments; ++i) {
+        bCs = &bCoarseList[i];
+        bCs->cSign = &sc->coarsesiglist[i];
 
-	sc->coarsesiglist = (CoarseSignature*)calloc(numOfSegments,	sizeof(CoarseSignature));
+        if (i < numOfSegments - 1)
+            bCs->cSign->next = &sc->coarsesiglist[i + 1];
+        // each coarse signature is a VSVideoSegment
+        // StartFrameOfSegment
+        bCs->firstIndex = get_bits_long(&bitContext, 32);
+        // EndFrameOfSegment
+        bCs->lastIndex = get_bits_long(&bitContext, 32);
 
-	BoundedCoarseSignature *bCoarseList = (BoundedCoarseSignature*)calloc(numOfSegments, sizeof(BoundedCoarseSignature));
+        // MediaTimeFlagOfSegment 1 bit, always 1
+        skip_bits(&bitContext, 1);
 
-	// CoarseSignature loading
-	for (unsigned int i = 0; i < numOfSegments; ++i) {
-		BoundedCoarseSignature *bCs = &bCoarseList[i];
-		bCs->cSign = &sc->coarsesiglist[i];
+        // Fine signature pts
+        // StartMediaTimeOfSegment 32 bits
+        bCs->firstPts = get_bits_long(&bitContext, 32);
+        // EndMediaTimeOfSegment 32 bits
+        bCs->lastPts = get_bits_long(&bitContext, 32);
+        // Bag of words
+        for ( j = 0; j < 5; ++j) {
+            // read 243 bits ( = 7 * 32 + 19 = 8 * 28 + 19) into buffer
+            for ( k = 0; k < 30; ++k) {
+                // 30*8 bits = 30 bytes
+                bCs->cSign->data[j][k] = get_bits(&bitContext, 8);
+            }
+            bCs->cSign->data[j][30] = get_bits(&bitContext, 3) << 5;
+        }
+    }
+    sc->coarseend = &sc->coarsesiglist[numOfSegments - 1];
 
-		if (i < numOfSegments - 1)
-			bCs->cSign->next = &sc->coarsesiglist[i + 1];
-		// each coarse signature is a VSVideoSegment
-		// StartFrameOfSegment
-		bCs->firstIndex = get_bits_long(&bitContext, 32);
-		// EndFrameOfSegment
-		bCs->lastIndex = get_bits_long(&bitContext, 32);
+    // Finesignatures
+    // CompressionFlag, only 0 supported
+    skip_bits(&bitContext, 1);
 
-		// MediaTimeFlagOfSegment 1 bit, always 1
-		skip_bits(&bitContext, 1);
+    // Check lastindex for validity
+    finesigncount = (totalLength - bitContext.index) / 689;
 
-		// Fine signature pts
-		// StartMediaTimeOfSegment 32 bits
-		bCs->firstPts = get_bits_long(&bitContext, 32);
-		// EndMediaTimeOfSegment 32 bits
-		bCs->lastPts = get_bits_long(&bitContext, 32);
-		// Bag of words
-		for (unsigned int i = 0; i < 5; ++i) {
+    if(sc->lastindex != finesigncount)
+        sc->lastindex = finesigncount;
+    sc->finesiglist = (FineSignature*)av_calloc(sc->lastindex, sizeof(FineSignature));
 
-			// read 243 bits ( = 7 * 32 + 19 = 8 * 28 + 19) into buffer
-			for (unsigned int j = 0; j < 30; ++j) {
-				// 30*8 bits = 30 bytes
-				bCs->cSign->data[i][j] = get_bits(&bitContext, 8);
-			}
-			bCs->cSign->data[i][30] = get_bits(&bitContext, 3) << 5;
-		}
-	}
-	sc->coarseend = &sc->coarsesiglist[numOfSegments - 1];
+    // Load fine signatures from file
+    for (i = 0; i < sc->lastindex; ++i) {
+        FineSignature *fs = &sc->finesiglist[i];
 
-	// Finesignatures
-	// CompressionFlag, only 0 supported
-	skip_bits(&bitContext, 1);
+        // MediaTimeFlagOfFrame always 1
+        skip_bits(&bitContext, 1);
 
-	sc->finesiglist = (FineSignature*)calloc(sc->lastindex,	sizeof(FineSignature));
+        // MediaTimeOfFrame (PTS)
+        fs->pts = get_bits_long(&bitContext, 32);
 
-	// Load fine signatures from file
-	for (unsigned int i = 0; i < sc->lastindex; ++i) {
-		FineSignature *fs = &sc->finesiglist[i];
+        // FrameConfidence
+        fs->confidence = get_bits(&bitContext, 8);
 
-		// MediaTimeFlagOfFrame always 1
-		skip_bits(&bitContext, 1);
+        // words
+        for (k = 0; k < 5; k++) {
+            fs->words[k] = get_bits(&bitContext, 8);
+        }
+        // framesignature
+        for (k = 0; k < SIGELEM_SIZE / 5; k++) {
+            fs->framesig[k] = get_bits(&bitContext, 8);
+        }
+    }
 
-		// MediaTimeOfFrame (PTS)
-		fs->pts = get_bits_long(&bitContext, 32);
+    // Creating FineSignature linked list
+    for (i = 0; i < sc->lastindex; ++i) {
+        FineSignature *fs = &sc->finesiglist[i];
+        // Building fine signature list
+        // First element prev should be NULL
+        // Last element next should be NULL
+        if (i == 0) {
+            fs->next = &fs[1];
+            fs->prev = NULL;
+        }
+        else if (i == sc->lastindex - 1) {
+            fs->next = NULL;
+            fs->prev = &fs[-1];
+        }
+        else {
+            fs->next = &fs[1];
+            fs->prev = &fs[-1];
+        }
+    }
 
-		// FrameConfidence
-		fs->confidence = get_bits(&bitContext, 8);
+    // Fine signature ranges DO overlap
+    // Assign FineSignatures to CoarseSignatures
+    for (i = 0; i < numOfSegments; ++i) {
+        BoundedCoarseSignature *bCs = &bCoarseList[i];
 
-		// words
-		for (unsigned int l = 0; l < 5; l++) {
-			fs->words[l] = get_bits(&bitContext, 8);
-		}
+        // O = n^2 probably it can be done faster
+        for (j = 0;  j < sc->lastindex  && sc->finesiglist[j].pts <= bCs->lastPts; ++j) {
+            FineSignature *fs = &sc->finesiglist[j];
 
-		// Crashes for some signature, it's a memory adding problems
-		// framesignature
-		for (unsigned int l = 0; l < SIGELEM_SIZE / 5; l++) {
-			fs->framesig[l] = get_bits(&bitContext, 8);
-		}
-	}
+            if (fs->pts >= bCs->firstPts) {
+                // Check if the fragment's pts is inside coarse signature
+                // bounds. Upper bound is checked in for loop
+                if (!bCs->cSign->first) {
+                    bCs->cSign->first = fs;
+                }
 
-	// Sort by frame time (pts)
-	qsort(sc->finesiglist, sc->lastindex, sizeof(FineSignature),finesignaturecompare);
+                if (bCs->cSign->last) {
+                    if (bCs->cSign->last->pts <= fs->pts)
+                        bCs->cSign->last = fs;
+                }
+                else {
+                    bCs->cSign->last = fs;
+                }
+            }
 
-	// Creating FineSignature linked list
-	for (unsigned int i = 0; i < sc->lastindex; ++i) {
-		FineSignature *fs = &sc->finesiglist[i];
-		// Building fine signature list
-		// First element prev should be NULL
-		// Last element next should be NULL
-		if (i == 0) {
-			fs->next = &fs[1];
-			fs->prev = NULL;
-		}
-		else if (i == sc->lastindex - 1) {
-			fs->next = NULL;
-			fs->prev = &fs[-1];
-		}
-		else {
-			fs->next = &fs[1];
-			fs->prev = &fs[-1];
-		}
-	}
+        }
+        bCs->cSign->first->index = bCs->firstIndex;
+        bCs->cSign->last->index = bCs->lastIndex;
+    }
 
-	// Fine signature ranges DO overlap
-	// Assign FineSignatures to CoarseSignatures
-	for (unsigned int i = 0; i < numOfSegments; ++i) {
-		BoundedCoarseSignature *bCs = &bCoarseList[i];
+    free(bCoarseList);
 
-		// O = n^2 probably it can be done faster
-		for (unsigned int j = 0;  j < sc->lastindex  && sc->finesiglist[j].pts <= bCs->lastPts; ++j) {
-			FineSignature *fs = &sc->finesiglist[j];
-
-			if (fs->pts >= bCs->firstPts) {
-				// Check if the fragment's pts is inside coarse signature
-				// bounds. Upper bound is checked in for loop
-				if (!bCs->cSign->first) {
-					bCs->cSign->first = fs;
-				}
-
-				if (bCs->cSign->last) {
-					if (bCs->cSign->last->pts <= fs->pts)
-						bCs->cSign->last = fs;
-				}
-				else {
-					bCs->cSign->last = fs;
-				}
-			}
-
-		}
-		bCs->cSign->first->index = bCs->firstIndex;
-		bCs->cSign->last->index = bCs->lastIndex;
-	}
-
-	free(bCoarseList);
-
-	return ret;
+    return ret;
 }
 
 static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, int len2) {
     int ret = -1;
     StreamContext scontexts[INPUTS_COUNT] = { 0 };
-	MatchingInfo result = { 0 };
-	SignatureContext sigContext = {
-		.class = NULL,
-		.mode = MODE_FULL,
-		.nb_inputs = INPUTS_COUNT,
-		.filename = NULL,
-		.thworddist = 9000,
-		.thcomposdist = 60000,
-		.thl1 = 116,
-		.thdi = 0,
-		.thit = 0.5,
-		.streamcontexts = scontexts
-	};
+    MatchingInfo result = { 0 };
+    SignatureContext sigContext = {
+        .class = NULL,
+        .mode = MODE_FULL,
+        .nb_inputs = INPUTS_COUNT,
+        .filename = NULL,
+        .thworddist = 9000,
+        .thcomposdist = 60000,
+        .thl1 = 116,
+        .thdi = 0,
+        .thit = 0.5,
+        .streamcontexts = scontexts
+    };
     if (binary_import(signbuf1, len1, &scontexts[0]) < 0 || binary_import(signbuf2, len2, &scontexts[1]) < 0) {
-		return ret;
-	}
+        return ret;
+    }
     result = lookup_signatures(NULL, &sigContext, &scontexts[0], &scontexts[1], MODE_FULL);
 
     if (result.score != 0) {
-		if (result.whole) ret = 2;//full matching
-		else ret = 1; //partial matching
-	}
-	else {
-		ret = 0; //no matching
-	}
+        if (result.whole) ret = 2;//full matching
+        else ret = 1; //partial matching
+    }
+    else {
+        ret = 0; //no matching
+    }
 
-    release_streamContext(&scontexts[0]);
-    release_streamContext(&scontexts[1]);
+    release_streamcontext(&scontexts[0]);
+    release_streamcontext(&scontexts[1]);
 
     return ret;
 }
-int avfilter_compare_sign_bybuff(void *signbuf1, int len1, void *signbuf2, int len2)
+int avfilter_compare_sign_bybuff(uint8_t *signbuf1, int len1, uint8_t *signbuf2, int len2)
 {
     int ret = -1;
 
     if(signbuf1 != NULL && signbuf2 != NULL && len1 > 0 && len2 > 0) {
-        ret = compare_signbuffer((uint8_t*)signbuf1, len1, (uint8_t*)signbuf2, len2);
+        ret = compare_signbuffer(signbuf1, len1, signbuf2, len2);
     }
 
     return ret;
