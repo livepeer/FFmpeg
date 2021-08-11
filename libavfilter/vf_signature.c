@@ -41,6 +41,7 @@
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
 #define BLOCK_LCM (int64_t) 476985600
 #define INPUTS_COUNT 2
+#define MPEG7_FINESIG_NBITS 689
 
 typedef struct BoundedCoarseSignature {
     // StartFrameOfSegment and EndFrameOfSegment
@@ -758,12 +759,12 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
-
 static void release_streamcontext(StreamContext *sc)
 {
     free(sc->coarsesiglist);
     free(sc->finesiglist);
 }
+
 static int get_filesize(const char *filename)
 {
     int fileLength = 0;
@@ -776,6 +777,7 @@ static int get_filesize(const char *filename)
     }
     return fileLength;
 }
+
 static uint8_t * get_filebuffer(const char *filename, int* fileLength)
 {
     FILE *f = NULL;
@@ -785,20 +787,24 @@ static uint8_t * get_filebuffer(const char *filename, int* fileLength)
     //check input parameters
     if (strlen(filename) <= 0) return buffer;
     f = fopen(filename, "rb");
-    if (f == NULL) return buffer;
-
+    if (f == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Could not open the file %s\n", filename);
+        return buffer;
+    }
     *fileLength = get_filesize(filename);
     if(*fileLength > 0) {
         // Cast to float is necessary to avoid int division
         paddedLength = ceil(*fileLength / (float)AV_INPUT_BUFFER_PADDING_SIZE)*AV_INPUT_BUFFER_PADDING_SIZE + AV_INPUT_BUFFER_PADDING_SIZE;
         buffer = (uint8_t*)av_calloc(paddedLength, sizeof(uint8_t));
         if (!buffer) {
+            av_log(NULL, AV_LOG_ERROR, "Could not allocate memory for reading signature file\n");
             fclose(f);
-            NULL;
+            return NULL;
         }
         // Read entire file into memory
         readLength = fread(buffer, sizeof(uint8_t), *fileLength, f);
         if(readLength != *fileLength) {
+            av_log(NULL, AV_LOG_ERROR, "Could not read the file %s\n", filename);
             free(buffer);
             buffer = NULL;
         }
@@ -863,8 +869,15 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     numOfSegments = get_bits_long(&bitContext, 32);
 
     sc->coarsesiglist = (CoarseSignature*)av_calloc(numOfSegments, sizeof(CoarseSignature));
+    if(sc->coarsesiglist == NULL) {
+        return AVERROR(ENOMEM);
+    }
 
     bCoarseList = (BoundedCoarseSignature*)av_calloc(numOfSegments, sizeof(BoundedCoarseSignature));
+    if(bCoarseList == NULL) {
+        av_free(sc->coarsesiglist);
+        return AVERROR(ENOMEM);
+    }
 
     // CoarseSignature loading
     for (i = 0; i < numOfSegments; ++i) {
@@ -904,11 +917,16 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     skip_bits(&bitContext, 1);
 
     // Check lastindex for validity
-    finesigncount = (totalLength - bitContext.index) / 689;
+    finesigncount = (totalLength - bitContext.index) / MPEG7_FINESIG_NBITS;
 
     if(sc->lastindex != finesigncount)
         sc->lastindex = finesigncount;
     sc->finesiglist = (FineSignature*)av_calloc(sc->lastindex, sizeof(FineSignature));
+    if(sc->finesiglist == NULL) {
+        av_free(sc->coarsesiglist);
+        av_free(bCoarseList);
+        return AVERROR(ENOMEM);
+    }
 
     // Load fine signatures from file
     for (i = 0; i < sc->lastindex; ++i) {
@@ -983,7 +1001,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
         bCs->cSign->last->index = bCs->lastIndex;
     }
 
-    free(bCoarseList);
+    av_free(bCoarseList);
 
     return ret;
 }
@@ -1005,6 +1023,7 @@ static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, in
         .streamcontexts = scontexts
     };
     if (binary_import(signbuf1, len1, &scontexts[0]) < 0 || binary_import(signbuf2, len2, &scontexts[1]) < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Could not create StreamContext from binary data\n");
         return ret;
     }
     result = lookup_signatures(NULL, &sigContext, &scontexts[0], &scontexts[1], MODE_FULL);
@@ -1022,6 +1041,7 @@ static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, in
 
     return ret;
 }
+
 int avfilter_compare_sign_bybuff(uint8_t *signbuf1, int len1, uint8_t *signbuf2, int len2)
 {
     int ret = -1;
@@ -1032,6 +1052,7 @@ int avfilter_compare_sign_bybuff(uint8_t *signbuf1, int len1, uint8_t *signbuf2,
 
     return ret;
 }
+
 int avfilter_compare_sign_bypath(char *signpath1, char *signpath2)
 {
     int ret = -1;
@@ -1039,11 +1060,11 @@ int avfilter_compare_sign_bypath(char *signpath1, char *signpath2)
     int len1, len2;
     uint8_t *buffer1, *buffer2;
     buffer1 = get_filebuffer(signpath1, &len1);
-    if(buffer1 == NULL) return ret;
+    if(buffer1 == NULL) return AVERROR(ENOMEM);
     buffer2 = get_filebuffer(signpath2, &len2);
     if(buffer2 == NULL) {
         free(buffer1);
-        return ret;
+        return AVERROR(ENOMEM);
     }
     ret = compare_signbuffer(buffer1, len1, buffer2, len2);
 
