@@ -38,6 +38,9 @@ int ff_dnn_init(DnnContext *ctx, DNNFunctionType func_type, AVFilterContext *fil
         av_log(filter_ctx, AV_LOG_ERROR, "could not create DNN module for requested backend\n");
         return AVERROR(ENOMEM);
     }
+    if (ctx->dnn_module->set_deviceid != NULL && ctx->gpuid >= 0) {
+        ctx->dnn_module->set_deviceid(ctx->gpuid);
+    }
     if (!ctx->dnn_module->load_model) {
         av_log(filter_ctx, AV_LOG_ERROR, "load_model for network is not specified\n");
         return AVERROR(EINVAL);

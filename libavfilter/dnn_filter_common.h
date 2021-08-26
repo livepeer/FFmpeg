@@ -33,6 +33,7 @@ typedef struct DnnContext {
     char *model_outputname;
     char *backend_options;
     int async;
+    int gpuid;
 
     DNNModule *dnn_module;
     DNNModel *model;

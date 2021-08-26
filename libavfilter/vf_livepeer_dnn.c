@@ -105,6 +105,32 @@ pre_exec_error:
     return ret;
 }
 
+static int get_gpuid(char* optstr)
+{
+    int ret = -1;
+    int hexstart = 14;
+    int count = 0, i;
+    int hexgpuids[2] = {-1,-1};
+    char tmp[3];
+    tmp[2] = '\0';
+    //parsing gpuid from dnnctx.backend_options
+    if(strlen(optstr) > hexstart + 4) {
+        for (i = hexstart; i < hexstart + 4; i+=2) {
+            tmp[0] = optstr[i];
+            tmp[1] = optstr[i + 1];
+            hexgpuids[count] = strtol(tmp, NULL, 10);
+            count++;
+        }
+    }
+    if (hexgpuids[0] >= 30 && hexgpuids[0] <= 39) {
+        ret = hexgpuids[0] - 30;
+    }
+    if(hexgpuids[0] == 31) {
+        ret += 10;
+    }
+
+    return ret;
+}
 static av_cold int init(AVFilterContext *context)
 {
     LivepeerContext *ctx = context->priv;
@@ -115,6 +141,12 @@ static av_cold int init(AVFilterContext *context)
     } else {
         ctx->logfile = NULL;
         av_log(ctx, AV_LOG_INFO, "output file for log is not specified\n");
+    }
+
+    ctx->dnnctx.gpuid = get_gpuid(ctx->dnnctx.backend_options);
+    if(ctx->dnnctx.gpuid >=0 ) {
+        //restore session option as {allow_growth: true}
+        strcpy(ctx->dnnctx.backend_options,"sess_config=0x01200232");
     }
 
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);

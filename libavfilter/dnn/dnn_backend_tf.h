@@ -36,4 +36,6 @@ DNNReturnType ff_dnn_execute_model_tf(const DNNModel *model, const char *input_n
 
 void ff_dnn_free_model_tf(DNNModel **model);
 
+void ff_dnn_set_deviceid_tf(uint32_t deviceid);
+
 #endif

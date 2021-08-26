@@ -53,6 +53,9 @@ typedef struct TFModel{
     TF_Status *status;
 } TFModel;
 
+//CUDA device ID to support multi GPU
+int32_t deviceid = -1;
+
 #define OFFSET(x) offsetof(TFContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption dnn_tensorflow_options[] = {
@@ -69,6 +72,11 @@ static DNNReturnType execute_model_tf(const DNNModel *model, const char *input_n
 static void free_buffer(void *data, size_t length)
 {
     av_freep(&data);
+}
+
+void ff_dnn_set_deviceid_tf(uint32_t gpuid)
+{
+    deviceid = gpuid;
 }
 
 static TF_Buffer *read_graph(const char *model_filename)
@@ -203,6 +211,7 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     const TF_Operation *init_op;
     uint8_t *sess_config = NULL;
     int sess_config_length = 0;
+    char sdevice[64] = {0,};
 
     // prepare the sess config data
     if (tf_model->ctx.options.sess_config != NULL) {
@@ -264,6 +273,20 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     tf_model->graph = TF_NewGraph();
     tf_model->status = TF_NewStatus();
     graph_opts = TF_NewImportGraphDefOptions();
+    if(deviceid >= 0) {
+        sprintf(sdevice,"/gpu:%d", deviceid);
+        //sprintf(sdevice,"/device:GPU:%d", deviceid);
+        TF_ImportGraphDefOptionsSetDefaultDevice(graph_opts, sdevice);
+        if (TF_GetCode(tf_model->status) != TF_OK){
+            TF_DeleteGraph(tf_model->graph);
+            TF_DeleteStatus(tf_model->status);
+            av_log(ctx, AV_LOG_ERROR, "Fail to select GPU\n");
+            av_freep(&sess_config);
+            return DNN_ERROR;
+        }
+        //restore default value
+        deviceid = -1;
+    }
     TF_GraphImportGraphDef(tf_model->graph, graph_def, graph_opts, tf_model->status);
     TF_DeleteImportGraphDefOptions(graph_opts);
     TF_DeleteBuffer(graph_def);
