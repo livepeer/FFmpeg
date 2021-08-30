@@ -274,8 +274,7 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     tf_model->status = TF_NewStatus();
     graph_opts = TF_NewImportGraphDefOptions();
     if(deviceid >= 0) {
-        sprintf(sdevice,"/gpu:%d", deviceid);
-        //sprintf(sdevice,"/device:GPU:%d", deviceid);
+        sprintf(sdevice,"/gpu:%d", deviceid);        
         TF_ImportGraphDefOptionsSetDefaultDevice(graph_opts, sdevice);
         if (TF_GetCode(tf_model->status) != TF_OK){
             TF_DeleteGraph(tf_model->graph);

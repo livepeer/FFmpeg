@@ -125,7 +125,7 @@ static int get_gpuid(char* optstr)
     if (hexgpuids[0] >= 30 && hexgpuids[0] <= 39) {
         ret = hexgpuids[0] - 30;
     }
-    if(hexgpuids[0] == 31) {
+    if(hexgpuids[1] == 31) {
         ret += 10;
     }
 
