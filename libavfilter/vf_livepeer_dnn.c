@@ -36,78 +36,44 @@
 typedef struct LivepeerContext {
     const AVClass *class;
 
-    DnnContext          dnnctx;         ///< DNN model, backend, I/O layer names
-    struct SwsContext   *sws_rgb_scale; ///< Used for scaling image to DNN input size and pixel format (RGB24)
-    struct AVFrame      *swscaleframe;  ///< Scaled image
-    FILE                *logfile;       ///< (Optional) Log classification probabilities in this file
-
-    char                *log_filename;  ///< File name
+    DnnContext dnnctx;         ///< DNN model, backend, I/O layer names
+    int input_width, input_height, output_width, output_height;      ///< Model input and output dimensions, initialized after the model is loaded
+    struct SwsContext *sws_rgb_scale; ///< Used for scaling image to DNN input size and pixel format (RGB24)
+    struct AVFrame *swscaleframe;  ///< Scaled image
+    FILE *logfile;       ///< (Optional) Log classification probabilities in this file
+    char *log_filename;  ///< File name
 } LivepeerContext;
 
 #define OFFSET(x) offsetof(LivepeerContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption livepeer_options[] = {
-    { "dnn_backend", "DNN backend used for model execution", OFFSET(dnnctx.backend_type), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS, "backend" },
-    { "native", "native backend flag", 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, "backend" },
+    {"dnn_backend", "DNN backend used for model execution", OFFSET(dnnctx.backend_type), AV_OPT_TYPE_INT,
+     {.i64 = 1}, 0, 1, FLAGS, "backend"},
+    {"native", "native backend flag", 0, AV_OPT_TYPE_CONST, {.i64 = 0}, 0, 0, FLAGS, "backend"},
 #if (CONFIG_LIBTENSORFLOW == 1)
-    { "tensorflow", "tensorflow backend flag", 0, AV_OPT_TYPE_CONST, { .i64 = 1 }, 0, 0, FLAGS, "backend" },
+    {"tensorflow", "tensorflow backend flag", 0, AV_OPT_TYPE_CONST, {.i64 = 1}, 0, 0, FLAGS, "backend"},
 #endif
-    { "model", "path to model file specifying network architecture and its parameters", OFFSET(dnnctx.model_filename), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 0, FLAGS },
-    { "input",       "input name of the model",     OFFSET(dnnctx.model_inputname),  AV_OPT_TYPE_STRING,    { .str = "x" },  0, 0, FLAGS },
-    { "output",      "output name of the model",    OFFSET(dnnctx.model_outputname), AV_OPT_TYPE_STRING,    { .str = "y" },  0, 0, FLAGS },
+    {"model", "path to model file specifying network architecture and its parameters",
+     OFFSET(dnnctx.model_filename), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 0, FLAGS},
+    {"input", "input name of the model", OFFSET(dnnctx.model_inputname), AV_OPT_TYPE_STRING, {.str = "x"}, 0, 0,
+     FLAGS},
+    {"output", "output name of the model", OFFSET(dnnctx.model_outputname), AV_OPT_TYPE_STRING, {.str = "y"}, 0, 0,
+     FLAGS},
     // default session_config = {allow_growth: true}
-    { "backend_configs",     "backend configs",     OFFSET(dnnctx.backend_options),  AV_OPT_TYPE_STRING,    { .str = "sess_config=0x01200232" }, 0, 0, FLAGS },
-    { "logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, FLAGS },
-    { NULL }
+    {"backend_configs", "backend configs", OFFSET(dnnctx.backend_options), AV_OPT_TYPE_STRING,
+     {.str = "sess_config=0x01200232"}, 0, 0, FLAGS},
+    {"logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS},
+    {NULL}
 };
 
 AVFILTER_DEFINE_CLASS(livepeer);
 
 static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context);
 
-static int pre_exec(AVFilterContext *context)
-{
-    LivepeerContext *ctx = context->priv;
-    AVFrame *frames[2];
-    DNNData input;
-    int ret = 0;
-
-    ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
-
-    // Initialize empty input and output frames with the dimensions the model expects
-    for (int i = 0; i < 2; i++) {
-        frames[i] = av_frame_alloc();
-        if (!frames[i]) {
-            ret = AVERROR(ENOMEM);
-            goto pre_exec_error;
-        }
-        frames[i]->format = AV_PIX_FMT_RGB24;
-        frames[i]->width  = input.width;
-        frames[i]->height = input.height;
-
-        ret = av_frame_get_buffer(frames[i], 0);
-        if (ret < 0) {
-            goto pre_exec_error;
-        }
-    }
-
-    // Execute model.
-    DNNReturnType dnn_result = ff_dnn_execute_model(&ctx->dnnctx, frames[0], frames[1]);
-    if (dnn_result != DNN_SUCCESS){
-        av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
-        ret = AVERROR(EIO);
-        goto pre_exec_error;
-    }
-
-pre_exec_error:
-    av_frame_free(&frames[0]);
-    av_frame_free(&frames[1]);
-    return ret;
-}
-
 static av_cold int init(AVFilterContext *context)
 {
     LivepeerContext *ctx = context->priv;
+    DNNData input;
     int ret = 0;
 
     if (ctx->log_filename) {
@@ -119,12 +85,17 @@ static av_cold int init(AVFilterContext *context)
 
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
 
-    // Pre-execute the model after loading the input/output dimensions to
-    // allocate the tensors before the first frame comes in
-    int ret2 = pre_exec(context);
-    if (ret2 < 0) {
-        av_log(ctx, AV_LOG_ERROR, "pre-exec for the model failed\n");
-        return ret2;
+    ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
+    ctx->input_width = input.width;
+    ctx->input_height = input.height;
+    // pre-executes the model and gets output information
+    if (DNN_SUCCESS != ctx->dnnctx.model->get_output(ctx->dnnctx.model->model, ctx->dnnctx.model_inputname,
+                                                     input.width, input.height,
+                                                     ctx->dnnctx.model_outputname,
+                                                     &ctx->output_width,
+                                                     &ctx->output_height)) {
+        av_log(ctx, AV_LOG_ERROR, "failed to init model\n");
+        return AVERROR(EIO);
     }
 
     ctx->dnnctx.model->post_proc = post_proc;
@@ -141,7 +112,7 @@ static int query_formats(AVFilterContext *context)
     AVFilterFormats *formats_list;
 
     formats_list = ff_make_format_list(pixel_formats);
-    if (!formats_list){
+    if (!formats_list) {
         av_log(context, AV_LOG_ERROR, "could not create formats list\n");
         return AVERROR(ENOMEM);
     }
@@ -153,7 +124,7 @@ static int prepare_sws_context(AVFilterLink *inlink)
 {
     int result = 0;
     enum AVPixelFormat fmt = inlink->format;
-    AVFilterContext *context  = inlink->dst;
+    AVFilterContext *context = inlink->dst;
     LivepeerContext *ctx = context->priv;
     DNNData input;
 
@@ -173,7 +144,7 @@ static int prepare_sws_context(AVFilterLink *inlink)
         return AVERROR(ENOMEM);
 
     ctx->swscaleframe->format = AV_PIX_FMT_RGB24;
-    ctx->swscaleframe->width  = input.width;
+    ctx->swscaleframe->width = input.width;
     ctx->swscaleframe->height = input.height;
 
     result = av_frame_get_buffer(ctx->swscaleframe, 0);
@@ -204,8 +175,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterLink *outlink = context->outputs[0];
     DNNReturnType dnn_result;
 
-    AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
-    if (!out){
+    AVFrame *out = ff_get_video_buffer(outlink, 64, 64);
+    if (!out) {
         av_log(context, AV_LOG_ERROR, "could not allocate memory for output frame\n");
         av_frame_free(&in);
         return AVERROR(ENOMEM);
@@ -213,8 +184,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     av_frame_copy_props(out, in);
 
     // Scale frame and transform pixel format to what DNN expects.
-    sws_scale(ctx->sws_rgb_scale, (const uint8_t **)in->data, in->linesize,
-              0, in->height, (uint8_t * const*)(&ctx->swscaleframe->data),
+    sws_scale(ctx->sws_rgb_scale, (const uint8_t **) in->data, in->linesize,
+              0, in->height, (uint8_t *const *) (&ctx->swscaleframe->data),
               ctx->swscaleframe->linesize);
 
     // Execute model.
@@ -223,33 +194,36 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     // Copy classification metadata to input frame (check if we can use output frame)
     av_dict_copy(&in->metadata, out->metadata, 0);
 
-    if (dnn_result != DNN_SUCCESS){
+    if (dnn_result != DNN_SUCCESS) {
         av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
         av_frame_free(&in);
         av_frame_free(&out);
         return AVERROR(EIO);
     }
+
+    // Don't use model output directly
+    av_frame_free(&out);
     return ff_filter_frame(outlink, in);
 }
 
 static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context)
 {
     LivepeerContext *ctx = context->priv;
-    float* pfdata = dnn_output->data;
+    float *pfdata = dnn_output->data;
     int lendata = dnn_output->height;
     char slvpinfo[256] = {0,};
     char tokeninfo[64] = {0,};
     AVDictionary **metadata = &out->metadata;
 
     // need all inference probability as metadata
-    for (int i=0; i<lendata; i++) {
+    for (int i = 0; i < lendata; i++) {
         snprintf(tokeninfo, sizeof(tokeninfo), "%.2f,", pfdata[i]);
         strcat(slvpinfo, tokeninfo);
     }
     if (lendata > 0) {
         av_dict_set(metadata, "lavfi.lvpdnn.text", slvpinfo, 0);
         if (ctx->logfile != NULL) {
-            fprintf(ctx->logfile, "%s\n",slvpinfo);
+            fprintf(ctx->logfile, "%s\n", slvpinfo);
         }
     }
     return DNN_SUCCESS;
@@ -277,7 +251,7 @@ static const AVFilterPad livepeer_inputs[] = {
         .config_props = config_input,
         .filter_frame = filter_frame,
     },
-    { NULL }
+    {NULL}
 };
 
 static const AVFilterPad livepeer_outputs[] = {
@@ -285,7 +259,7 @@ static const AVFilterPad livepeer_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
+    {NULL}
 };
 
 AVFilter ff_vf_livepeer_dnn = {
