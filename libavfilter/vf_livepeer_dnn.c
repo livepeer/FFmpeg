@@ -175,7 +175,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterLink *outlink = context->outputs[0];
     DNNReturnType dnn_result;
 
-    AVFrame *out = ff_get_video_buffer(outlink, ctx->output_width, ctx->output_height);
+    AVFrame *out = ff_get_video_buffer(outlink, 64, 64);
     if (!out) {
         av_log(context, AV_LOG_ERROR, "could not allocate memory for output frame\n");
         av_frame_free(&in);
