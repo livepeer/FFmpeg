@@ -84,6 +84,10 @@ static av_cold int init(AVFilterContext *context)
     }
 
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
+    if (ret != 0) {
+        av_log(ctx, AV_LOG_ERROR, "failed to initialize DNN backend\n");
+        return ret;
+    }
 
     ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
     ctx->input_width = input.width;
