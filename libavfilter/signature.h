@@ -38,6 +38,11 @@
 #define DIFFELEM_SIZE 348 /* SIGELEM_SIZE - elem_a1 - elem_a2 */
 #define COARSE_SIZE 90
 
+enum hw_mode {
+    HWMODE_OFF,
+    HWMODE_ON,
+    HWMODE_COUNT
+};
 enum lookup_mode {
     MODE_OFF,
     MODE_FULL,
@@ -136,6 +141,9 @@ typedef struct SignatureContext {
     int thl1;
     int thdi;
     int thit;
+    int hwmode;
+    int w;
+    int h;
     /* end input parameters */
 
     uint8_t l1distlut[243*242/2]; /* 243 + 242 + 241 ... */

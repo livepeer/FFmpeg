@@ -65,7 +65,7 @@ enum {
     INTERP_ALGO_BILINEAR,
     INTERP_ALGO_BICUBIC,
     INTERP_ALGO_LANCZOS,
-
+    INTERP_ALGO_BOXSUM,
     INTERP_ALGO_COUNT
 };
 
@@ -102,6 +102,7 @@ typedef struct CUDAScaleContext {
     CUfunction  cu_func_ushort;
     CUfunction  cu_func_ushort2;
     CUfunction  cu_func_ushort4;
+    CUfunction  cu_func_int;
     CUstream    cu_stream;
 
     CUdeviceptr srcBuffer;
@@ -120,6 +121,9 @@ static av_cold int cudascale_init(AVFilterContext *ctx)
     CUDAScaleContext *s = ctx->priv;
 
     s->format = AV_PIX_FMT_NONE;
+    if(s->interp_algo == INTERP_ALGO_BOXSUM) {
+        s->format = AV_PIX_FMT_0RGB32;
+    }
     s->frame = av_frame_alloc();
     if (!s->frame)
         return AVERROR(ENOMEM);
@@ -294,6 +298,12 @@ static av_cold int cudascale_config_props(AVFilterLink *outlink)
         s->interp_use_linear = 1;
         s->interp_as_integer = 1;
         break;
+    case INTERP_ALGO_BOXSUM:
+        scaler_ptx = vf_scale_cuda_ptx;
+        function_infix = "_Boxsum";
+        s->interp_use_linear = 0;
+        s->interp_as_integer = 1;
+        break;
     case INTERP_ALGO_DEFAULT:
     case INTERP_ALGO_BICUBIC:
         scaler_ptx = vf_scale_cuda_bicubic_ptx;
@@ -353,6 +363,10 @@ static av_cold int cudascale_config_props(AVFilterLink *outlink)
     if (ret < 0)
         goto fail;
 
+    snprintf(buf, sizeof(buf), "Subsample%s_int", function_infix);
+    CHECK_CU(cu->cuModuleGetFunction(&s->cu_func_int, s->cu_module, buf));
+    if (ret < 0)
+        goto fail;
 
     CHECK_CU(cu->cuCtxPopCurrent(&dummy));
 
@@ -449,6 +463,24 @@ static int scalecuda_resize(AVFilterContext *ctx,
 {
     AVHWFramesContext *in_frames_ctx = (AVHWFramesContext*)in->hw_frames_ctx->data;
     CUDAScaleContext *s = ctx->priv;
+
+    if(s->interp_algo == INTERP_ALGO_BOXSUM) {
+        switch (in_frames_ctx->sw_format) {
+            case AV_PIX_FMT_YUV420P:
+            case AV_PIX_FMT_YUV444P:
+            case AV_PIX_FMT_YUV444P16:
+            case AV_PIX_FMT_NV12:
+                call_resize_kernel(ctx, s->cu_func_int, 1,
+                           in->data[0], in->width, in->height, in->linesize[0],
+                           out->data[0], out->width, out->height, out->linesize[0],
+                           1, 32);
+                break;
+            default:
+                    return AVERROR_BUG;
+
+        }
+        return 0;
+    }
 
     switch (in_frames_ctx->sw_format) {
     case AV_PIX_FMT_YUV420P:
@@ -559,6 +591,19 @@ static int cudascale_scale(AVFilterContext *ctx, AVFrame *out, AVFrame *in)
     s->frame->width  = outlink->w;
     s->frame->height = outlink->h;
 
+    //for debuging
+#if 1
+    AVHWFramesContext *in_frames_ctx = (AVHWFramesContext*)out->hw_frames_ctx->data;
+    av_log(ctx, AV_LOG_ERROR, "cudascale_scale input format: %s out format: %s\n",
+               av_get_pix_fmt_name(in_frames_ctx->sw_format), av_get_pix_fmt_name(out->format));
+
+    AVFrame *sw_frame = av_frame_alloc();
+    sw_frame->format = AV_PIX_FMT_0RGB32;
+    av_hwframe_transfer_data(sw_frame, out, 0);
+
+    av_log(ctx, AV_LOG_ERROR, "sw_frame format: %s \n",  av_get_pix_fmt_name(sw_frame->format));
+    av_frame_free(&sw_frame);
+#endif
     ret = av_frame_copy_props(out, in);
     if (ret < 0)
         return ret;
@@ -628,6 +673,7 @@ static const AVOption options[] = {
         { "bilinear", "bilinear", 0, AV_OPT_TYPE_CONST, { .i64 = INTERP_ALGO_BILINEAR }, 0, 0, FLAGS, "interp_algo" },
         { "bicubic",  "bicubic",  0, AV_OPT_TYPE_CONST, { .i64 = INTERP_ALGO_BICUBIC  }, 0, 0, FLAGS, "interp_algo" },
         { "lanczos",  "lanczos",  0, AV_OPT_TYPE_CONST, { .i64 = INTERP_ALGO_LANCZOS  }, 0, 0, FLAGS, "interp_algo" },
+        { "boxsum",   "boxsum",   0, AV_OPT_TYPE_CONST, { .i64 = INTERP_ALGO_BOXSUM   }, 0, 0, FLAGS, "interp_algo" },
     { "passthrough", "Do not process frames at all if parameters match", OFFSET(passthrough), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, FLAGS },
     { "param", "Algorithm-Specific parameter", OFFSET(param), AV_OPT_TYPE_FLOAT, { .dbl = SCALE_CUDA_PARAM_DEFAULT }, -FLT_MAX, FLT_MAX, FLAGS },
     { "force_original_aspect_ratio", "decrease or increase w/h if necessary to keep the original AR", OFFSET(force_original_aspect_ratio), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 2, FLAGS, "force_oar" },

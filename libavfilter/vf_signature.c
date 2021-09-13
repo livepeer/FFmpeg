@@ -75,6 +75,14 @@ static const AVOption signature_options[] = {
         OFFSET(thdi),         AV_OPT_TYPE_INT,    {.i64 = 0},        0, INT_MAX,          FLAGS },
     { "th_it",      "threshold for relation of good to all frames",
         OFFSET(thit),         AV_OPT_TYPE_DOUBLE, {.dbl = 0.5},    0.0, 1.0,              FLAGS },
+    { "hwmode", "set the hardware accelator or not",
+        OFFSET(hwmode),         AV_OPT_TYPE_INT,    {.i64 = HWMODE_OFF}, 0, HWMODE_COUNT-1, FLAGS, "hwmode" },
+        { "off",  NULL, 0, AV_OPT_TYPE_CONST, {.i64 = HWMODE_OFF},  0, 0, .flags = FLAGS, "hwmode" },
+        { "on",   NULL, 0, AV_OPT_TYPE_CONST, {.i64 = HWMODE_ON}, 0, 0, .flags = FLAGS, "hwmode" },
+    { "w",       "set original frame width in hw mode",
+        OFFSET(w),   AV_OPT_TYPE_INT,    {.i64 = 0},     0, INT_MAX,          FLAGS },
+    { "h",       "set orginal frame height in hw mode",
+        OFFSET(h),   AV_OPT_TYPE_INT,    {.i64 = 0},     0, INT_MAX,          FLAGS },
     { NULL }
 };
 
@@ -92,6 +100,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P,
         AV_PIX_FMT_YUVJ440P,
         AV_PIX_FMT_NV12, AV_PIX_FMT_NV21,
+        AV_PIX_FMT_0BGR32, AV_PIX_FMT_RGBA, AV_PIX_FMT_BGRA,
         AV_PIX_FMT_NONE
     };
 
@@ -105,13 +114,22 @@ static int config_input(AVFilterLink *inlink)
     StreamContext *sc = &(sic->streamcontexts[FF_INLINK_IDX(inlink)]);
 
     sc->time_base = inlink->time_base;
+    int w = inlink->w;
+    int h = inlink->h;
+    if(sic->w > 0) {
+        w = sic->w;
+     }
+     if(sic->h > 0) {
+        h = sic->h;
+     }
     /* test for overflow */
-    sc->divide = (((uint64_t) inlink->w/32) * (inlink->w/32 + 1) * (inlink->h/32 * inlink->h/32 + 1) > INT64_MAX / (BLOCK_LCM * 255));
+    sc->divide = (((uint64_t) w/32) * (w/32 + 1) * (h/32 * h/32 + 1) > INT64_MAX / (BLOCK_LCM * 255));
     if (sc->divide) {
         av_log(ctx, AV_LOG_WARNING, "Input dimension too high for precise calculation, numbers will be rounded.\n");
     }
-    sc->w = inlink->w;
-    sc->h = inlink->h;
+    sc->w = w;
+    sc->h = h;
+    av_log(NULL, AV_LOG_ERROR, "signature config_input \n");
     return 0;
 }
 
@@ -176,6 +194,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     uint64_t intpic[32][32];
     uint64_t rowcount;
     uint8_t *p = picref->data[0];
+    int     *pp = (int*)picref->data[0];
     int inti, intj;
     int *intjlut;
 
@@ -208,22 +227,40 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     fs->index = sc->lastindex++;
 
     memset(intpic, 0, sizeof(uint64_t)*32*32);
-    intjlut = av_malloc_array(inlink->w, sizeof(int));
-    if (!intjlut)
-        return AVERROR(ENOMEM);
-    for (i = 0; i < inlink->w; i++) {
-        intjlut[i] = (i*32)/inlink->w;
-    }
-
-    for (i = 0; i < inlink->h; i++) {
-        inti = (i*32)/inlink->h;
-        for (j = 0; j < inlink->w; j++) {
-            intj = intjlut[j];
-            intpic[inti][intj] += p[j];
+    if(sic->hwmode == HWMODE_ON) {
+        for (i=0; i<32; i++) {
+            for (j=0; j<32; j++) {
+                intpic[i][j] = pp[j];
+            }
+            pp += picref->linesize[0];
         }
-        p += picref->linesize[0];
+    } else {
+        intjlut = av_malloc_array(inlink->w, sizeof(int));
+        if (!intjlut)
+            return AVERROR(ENOMEM);
+        for (i = 0; i < inlink->w; i++) {
+            intjlut[i] = (i*32)/inlink->w;
+        }
+
+        for (i = 0; i < inlink->h; i++) {
+            inti = (i*32)/inlink->h;
+            for (j = 0; j < inlink->w; j++) {
+                intj = intjlut[j];
+                intpic[inti][intj] += p[j];
+            }
+            p += picref->linesize[0];
+        }
+        av_freep(&intjlut);
     }
-    av_freep(&intjlut);
+    //
+    av_log(NULL, AV_LOG_ERROR, "start ==\n");
+    for (i=0; i<32; i++) {
+        for (j=0; j<32; j++) {
+            av_log(NULL, AV_LOG_ERROR, "%ld ,", intpic[i][j]);
+        }
+        av_log(NULL, AV_LOG_ERROR, "== end\n");
+    }
+    //
 
     /* The following calculates a summed area table (intpic) and brings the numbers
      * in intpic to the same denominator.
@@ -716,7 +753,6 @@ static av_cold void uninit(AVFilterContext *ctx)
     FineSignature* finsig;
     CoarseSignature* cousig;
     int i;
-
 
     /* free the lists */
     if (sic->streamcontexts != NULL) {

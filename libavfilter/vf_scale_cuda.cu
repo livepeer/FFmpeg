@@ -76,6 +76,40 @@ __device__ inline void Subsample_Bilinear(cudaTextureObject_t tex,
     }
 }
 
+template<typename T>
+__device__ inline void Subsample_Boxsum(cudaTextureObject_t tex,
+                                         T *dst,
+                                         int dst_width, int dst_height, int dst_pitch,
+                                         int src_width, int src_height,
+                                         int bit_depth)
+{
+
+
+    int xo = blockIdx.x * blockDim.x + threadIdx.x;
+    int yo = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (yo < dst_height && xo < dst_width)
+    {
+        float hscale = (float)src_width / (float)dst_width;
+        float vscale = (float)src_height / (float)dst_height;
+        float xi = (xo + 0.5f) * hscale;
+        float yi = (yo + 0.5f) * vscale;
+
+        //calculation center point
+        int xs = (int)(xi - hscale / 2);
+        int xe = (int)(xi + hscale / 2);
+        int ys = (int)(yi - vscale / 2);
+        int ye = (int)(yi + vscale / 2);
+
+        int index = yo*dst_pitch+xo;
+        for(int i = xs; i <= xe; i++) {
+            for(int j = ys; j <= ye; j++) {
+                dst[index] += tex2D<T>(tex, i, j);
+            }
+        }
+    }
+}
+
 extern "C" {
 
 #define NEAREST_KERNEL(T) \
@@ -98,6 +132,7 @@ NEAREST_KERNEL(uchar4)
 NEAREST_KERNEL(ushort)
 NEAREST_KERNEL(ushort2)
 NEAREST_KERNEL(ushort4)
+NEAREST_KERNEL(int)
 
 #define BILINEAR_KERNEL(T) \
     __global__ void Subsample_Bilinear_ ## T(cudaTextureObject_t src_tex,                  \
@@ -119,5 +154,28 @@ BILINEAR_KERNEL(uchar4)
 BILINEAR_KERNEL(ushort)
 BILINEAR_KERNEL(ushort2)
 BILINEAR_KERNEL(ushort4)
+BILINEAR_KERNEL(int)
+
+#define BOXSUM_KERNEL(T) \
+    __global__ void Subsample_Boxsum_ ## T(cudaTextureObject_t src_tex,                    \
+                                             T *dst,                                       \
+                                             int dst_width, int dst_height, int dst_pitch, \
+                                             int src_width, int src_height,                \
+                                             int bit_depth)                                \
+    {                                                                                      \
+        Subsample_Boxsum<T>(src_tex, dst,                                                  \
+                              dst_width, dst_height, dst_pitch,                            \
+                              src_width, src_height,                                       \
+                              bit_depth);                                                  \
+    }
+
+BOXSUM_KERNEL(uchar)
+BOXSUM_KERNEL(uchar2)
+BOXSUM_KERNEL(uchar4)
+
+BOXSUM_KERNEL(ushort)
+BOXSUM_KERNEL(ushort2)
+BOXSUM_KERNEL(ushort4)
+BOXSUM_KERNEL(int)
 
 }
