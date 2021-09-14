@@ -32,6 +32,7 @@
 #include "libavformat/avio.h"
 #include "libswscale/swscale.h"
 #include "dnn_filter_common.h"
+#include "stdatomic.h"
 
 typedef struct LivepeerContext {
     const AVClass *class;
@@ -42,7 +43,11 @@ typedef struct LivepeerContext {
     struct AVFrame *swscaleframe;  ///< Scaled image
     FILE *logfile;       ///< (Optional) Log classification probabilities in this file
     char *log_filename;  ///< File name
+    atomic_int dnn_ctx_ref_count;
 } LivepeerContext;
+
+// global TF model and context
+struct DnnContext *dnn_ctx = NULL;
 
 #define OFFSET(x) offsetof(LivepeerContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
@@ -63,6 +68,8 @@ static const AVOption livepeer_options[] = {
     {"backend_configs", "backend configs", OFFSET(dnnctx.backend_options), AV_OPT_TYPE_STRING,
      {.str = "sess_config=0x01200232"}, 0, 0, FLAGS},
     {"logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS},
+    {"no_priv_free", "do not free memory used by priv field of filter context, it's handled by the filter", 0,
+     AV_OPT_TYPE_CONST, {.i64 = 1}, 1, 1, 0, "backend"},
     {NULL}
 };
 
@@ -70,36 +77,61 @@ AVFILTER_DEFINE_CLASS(livepeer);
 
 static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context);
 
+/// Creates a shallow copy of DNNContext
+/// \param src
+/// \param dst
+static void copy_dnnctx(DnnContext *src, DnnContext *dst)
+{
+    dst->model_filename = src->model_filename;
+    dst->backend_type = src->backend_type;
+    dst->model_inputname = src->model_inputname;
+    dst->model_outputname = src->model_outputname;
+    dst->backend_options = src->backend_options;
+    dst->async = src->async;
+    dst->dnn_module = src->dnn_module;
+    dst->model = src->model;
+}
+
 static av_cold int init(AVFilterContext *context)
 {
-    LivepeerContext *ctx = context->priv;
-    DNNData input;
     int ret = 0;
+    LivepeerContext *ctx = context->priv;
+    // check if context already initialized in this process - not thread safe
+    if (!dnn_ctx) {
+        DNNData input;
 
-    if (ctx->log_filename) {
-        ctx->logfile = fopen(ctx->log_filename, "w");
+        if (ctx->log_filename) {
+            ctx->logfile = fopen(ctx->log_filename, "w");
+        } else {
+            ctx->logfile = NULL;
+            av_log(ctx, AV_LOG_INFO, "output file for log is not specified\n");
+        }
+
+        ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
+
+        ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
+        ctx->input_width = input.width;
+        ctx->input_height = input.height;
+        // pre-executes the model and gets output information
+        if (DNN_SUCCESS != ctx->dnnctx.model->get_output(ctx->dnnctx.model->model, ctx->dnnctx.model_inputname,
+                                                         input.width, input.height,
+                                                         ctx->dnnctx.model_outputname,
+                                                         &ctx->output_width,
+                                                         &ctx->output_height)) {
+            av_log(ctx, AV_LOG_ERROR, "failed to init model\n");
+            return AVERROR(EIO);
+        }
+
+        ctx->dnnctx.model->post_proc = post_proc;
+        ctx->dnn_ctx_ref_count = 0;
+        dnn_ctx = malloc(sizeof(DnnContext));
+        copy_dnnctx(&ctx->dnnctx, dnn_ctx);
     } else {
-        ctx->logfile = NULL;
-        av_log(ctx, AV_LOG_INFO, "output file for log is not specified\n");
+        copy_dnnctx(dnn_ctx, &ctx->dnnctx);
+        ctx->dnn_ctx_ref_count++;
+        printf("DNN context reused\n", NULL, 30);
+        av_log(context, AV_LOG_DEBUG, "DNN context reused\n");
     }
-
-    ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
-
-    ctx->dnnctx.model->get_input(ctx->dnnctx.model->model, &input, ctx->dnnctx.model_inputname);
-    ctx->input_width = input.width;
-    ctx->input_height = input.height;
-    // pre-executes the model and gets output information
-    if (DNN_SUCCESS != ctx->dnnctx.model->get_output(ctx->dnnctx.model->model, ctx->dnnctx.model_inputname,
-                                                     input.width, input.height,
-                                                     ctx->dnnctx.model_outputname,
-                                                     &ctx->output_width,
-                                                     &ctx->output_height)) {
-        av_log(ctx, AV_LOG_ERROR, "failed to init model\n");
-        return AVERROR(EIO);
-    }
-
-    ctx->dnnctx.model->post_proc = post_proc;
-
     return ret;
 }
 
@@ -235,10 +267,20 @@ static av_cold void uninit(AVFilterContext *context)
 
     sws_freeContext(ctx->sws_rgb_scale);
 
-    if (ctx->swscaleframe)
+    if (ctx->swscaleframe) {
         av_frame_free(&ctx->swscaleframe);
+    }
 
-    ff_dnn_uninit(&ctx->dnnctx);
+    if (ctx->dnn_ctx_ref_count == 0) {
+        ff_dnn_uninit(&ctx->dnnctx);
+        av_opt_free(ctx);
+        printf("DNN uninit\n", NULL, 30);
+        av_log(context, AV_LOG_DEBUG, "DNN uninit\n");
+    } else {
+        printf("DNN context ref count dec\n", NULL, 30);
+        ctx->dnn_ctx_ref_count--;
+    }
+
     if (ctx->log_filename && ctx->logfile) {
         fclose(ctx->logfile);
     }
