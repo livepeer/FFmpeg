@@ -777,11 +777,6 @@ void avfilter_free(AVFilterContext *filter)
         free_link(filter->outputs[i]);
     }
 
-    if (strcmp(filter->name,"livepeer_dnn") == 0)
-    {
-        printf("found");
-    }
-
     if (filter->filter->priv_class) {
         void *target_obj;
         AVOption *o = av_opt_find2(filter->priv, "no_priv_free", "backend", 0, NULL, &target_obj);
