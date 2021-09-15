@@ -69,7 +69,7 @@ static const AVOption livepeer_options[] = {
      {.str = "sess_config=0x01200232"}, 0, 0, FLAGS},
     {"logfile", "path to logfile", OFFSET(log_filename), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS},
     {"no_priv_free", "do not free memory used by priv field of filter context, it's handled by the filter", 0,
-     AV_OPT_TYPE_CONST, {.i64 = 1}, 1, 1, 0, "backend"},
+     AV_OPT_TYPE_CONST, {.i64 = 1}, 1, 1, 0, "flag"},
     {NULL}
 };
 
@@ -128,9 +128,11 @@ static av_cold int init(AVFilterContext *context)
 
         ctx->dnnctx.model->post_proc = post_proc;
         ctx->dnn_ctx_ref_count = 0;
+        printf("new DNN context initialized\n", NULL, 30);
         dnn_ctx = malloc(sizeof(DnnContext));
         copy_dnnctx(&ctx->dnnctx, dnn_ctx);
-    } else {
+    }
+    else {
         copy_dnnctx(dnn_ctx, &ctx->dnnctx);
         ctx->dnn_ctx_ref_count++;
         printf("DNN context reused\n", NULL, 30);

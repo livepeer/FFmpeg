@@ -779,7 +779,7 @@ void avfilter_free(AVFilterContext *filter)
 
     if (filter->filter->priv_class) {
         void *target_obj;
-        const AVOption *o = av_opt_find2(filter->priv, "no_priv_free", "backend", 0, 0, &target_obj);
+        const AVOption *o = av_opt_find2(filter->priv, "no_priv_free", "flag", 0, 0, &target_obj);
         if (!o || !o->default_val.i64) {
             av_opt_free(filter->priv);
             av_freep(&filter->priv);
