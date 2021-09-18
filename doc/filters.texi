@@ -18765,6 +18765,52 @@ ffmpeg -i input1.mkv -i input2.mkv -filter_complex "[0:v][1:v] signature=nb_inpu
 
 @end itemize
 
+@anchor{signature_cuda}
+@section signature_cuda
+
+This is the CUDA variant of the @ref{signature} filter.
+It only accepts CUDA frames and can handle only one input.
+The filter always passes through the first input. The signature of a stream can
+be written into a file.
+
+It accepts the following options:
+
+@table @option
+
+@item filename
+Set the path to which the output is written.
+
+@item format
+Choose the output format.
+
+Available values are:
+
+@table @samp
+@item binary
+Use the specified binary representation (default).
+@item xml
+Use the specified xml representation.
+@end table
+
+@end table
+
+@subsection Examples
+
+@itemize
+@item
+To calculate the signature of an input video and store it in signature.bin:
+@example
+ffmpeg -hwaccel cuda -hwaccel_output_format cuda -i input.mp4 -c:a copy -vf "scale_cuda=1280:720,signature_cuda=filename=signature.bin" -c:v h264_nvenc -b:v 5M output_720.mp4
+@end example
+
+@item
+To calculate the signature of an input video and store the signature as XML format:
+@example
+ffmpeg -hwaccel cuvid -c:v h264_cuvid -i input.mp4 -vf "scale_cuda=1280:720,signature_cuda=:format=xml:filename=signature.xml,hwdownload,format=nv12" output_720.mp4
+@end example
+
+@end itemize
+
 @anchor{smartblur}
 @section smartblur
 

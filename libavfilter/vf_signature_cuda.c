@@ -41,27 +41,17 @@ static const enum AVPixelFormat supported_formats[] = {
 
 typedef struct CUDASignContext {
     const AVClass *class;
-    int mode;
-    int nb_inputs;
+
     char *filename;
     int format;
-    int thworddist;
-    int thcomposdist;
-    int thl1;
-    int thdi;
-    int thit;
 
-    uint8_t l1distlut[243*242/2]; /* 243 + 242 + 241 ... */
     StreamContext* streamcontexts;
 
     AVCUDADeviceContext *hwctx;
     AVBufferRef *frames_ctx;
-    AVFrame     *frame;
-    
-    int passthrough;
     
     CUmodule    cu_module;
-    CUfunction  cu_func_int;
+    CUfunction  cu_func_boxsum;
     CUstream    cu_stream;
     
     CUdeviceptr boxgpubuff;
@@ -89,6 +79,11 @@ static int format_is_supported(enum AVPixelFormat fmt)
         if (supported_formats[i] == fmt)
             return 1;
     return 0;
+}
+
+static AVFrame *get_pass_video_buffer(AVFilterLink *inlink, int w, int h)
+{
+    return ff_null_get_video_buffer(inlink, w, h);
 }
 
 static av_cold int cudasign_config_props(AVFilterLink *outlink)
@@ -119,13 +114,13 @@ static av_cold int cudasign_config_props(AVFilterLink *outlink)
     if (ret < 0)
         goto fail;
     
-    ret = CHECK_CU(cu->cuModuleGetFunction(&s->cu_func_int, s->cu_module, "Subsample_Boxsumint64"));
+    ret = CHECK_CU(cu->cuModuleGetFunction(&s->cu_func_boxsum, s->cu_module, "Subsample_Boxsumint64"));
     if (ret < 0)
         goto fail;
 
     ret = CHECK_CU(cu->cuMemAlloc(&s->boxgpubuff, PIXELS_SIGN * sizeof(int64_t)));
     if (ret < 0)
-        return ret;
+        goto fail;
 
     CHECK_CU(cu->cuCtxPopCurrent(&dummy));
 
@@ -141,6 +136,13 @@ static av_cold int cudasign_config_props(AVFilterLink *outlink)
                av_get_pix_fmt_name(in_format));
         return AVERROR(ENOSYS);
     }
+
+    //for passthrough frame
+    s->frames_ctx = av_buffer_ref(ctx->inputs[0]->hw_frames_ctx);
+    ctx->outputs[0]->hw_frames_ctx = av_buffer_ref(s->frames_ctx);
+    if (!ctx->outputs[0]->hw_frames_ctx)
+        return AVERROR(ENOMEM);
+
     //config init
     sc = s->streamcontexts;
 
@@ -159,7 +161,7 @@ fail:
     return ret;
 }
 
-static int call_resize_kernel(AVFilterContext *ctx, CUfunction func, int channels,
+static int call_boxsum_kernel(AVFilterContext *ctx, CUfunction func, int channels,
                               uint8_t *src_dptr, int src_width, int src_height, int src_pitch,
                               uint8_t *dst_dptr, int dst_width, int dst_height, int dst_pitch,
                               int pixel_size, int bit_depth)
@@ -204,7 +206,7 @@ exit:
     return ret;
 }
 
-static int scalecuda_resize(AVFilterContext *ctx, AVFrame *in)
+static int run_cudaresize(AVFilterContext *ctx, AVFrame *in)
 {
     CUDASignContext *s = ctx->priv;
     CudaFunctions *cu = s->hwctx->internal->cuda_dl;
@@ -212,7 +214,7 @@ static int scalecuda_resize(AVFilterContext *ctx, AVFrame *in)
 
     CUDA_MEMCPY2D cpy = { 0 };
 
-    call_resize_kernel(ctx, s->cu_func_int, 1,
+    call_boxsum_kernel(ctx, s->cu_func_boxsum, 1,
                 in->data[0], in->width, in->height, in->linesize[0],
                 (uint8_t*)s->boxgpubuff, W_SIGN, H_SIGN, W_SIGN,
                 1, 8);
@@ -230,7 +232,6 @@ static int scalecuda_resize(AVFilterContext *ctx, AVFrame *in)
 
     return ret;
 }
-
 
 static int get_block_size(const Block *b)
 {
@@ -461,13 +462,9 @@ static int export(AVFilterContext *ctx, StreamContext *sc, int input)
     CUDASignContext* sic = ctx->priv;
     char filename[1024];
 
-    if (sic->nb_inputs > 1) {
-        /* error already handled */
-        av_assert0(av_get_frame_filename(filename, sizeof(filename), sic->filename, input) == 0);
-    } else {
-        if (av_strlcpy(filename, sic->filename, sizeof(filename)) >= sizeof(filename))
-            return AVERROR(EINVAL);
-    }
+    if (av_strlcpy(filename, sic->filename, sizeof(filename)) >= sizeof(filename))
+        return AVERROR(EINVAL);
+
     if (sic->format == FORMAT_XML) {
         return xml_export(ctx, sc, filename);
     } else {
@@ -513,11 +510,11 @@ static int cudasign_filter_frame(AVFilterLink *link, AVFrame *in)
     if (ret < 0)
         goto fail;
     //run box filter
-    ret = scalecuda_resize(ctx, in);
+    ret = run_cudaresize(ctx, in);
 
     CHECK_CU(cu->cuCtxPopCurrent(&dummy));
     if (ret < 0)
-        goto fail;    
+        goto fail;
     
     precfactor = (sc->divide) ? 65536 : BLOCK_LCM;
     
@@ -700,7 +697,7 @@ static av_cold int cudasign_init(AVFilterContext *ctx)
     if (!s->boxcpubuff)
         return AVERROR(ENOMEM);
 
-    s->streamcontexts = av_mallocz(s->nb_inputs * sizeof(StreamContext));
+    s->streamcontexts = av_mallocz(sizeof(StreamContext));
     if (!s->streamcontexts)
         return AVERROR(ENOMEM);
     sc = s->streamcontexts;
@@ -778,29 +775,12 @@ static av_cold void cudasign_uninit(AVFilterContext *ctx)
 #define OFFSET(x) offsetof(CUDASignContext, x)
 #define FLAGS (AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM)
 static const AVOption options[] = {
-    { "detectmode", "set the detectmode",
-        OFFSET(mode),         AV_OPT_TYPE_INT,    {.i64 = MODE_OFF}, 0, NB_LOOKUP_MODE-1, FLAGS, "mode" },
-        { "off",  NULL, 0, AV_OPT_TYPE_CONST, {.i64 = MODE_OFF},  0, 0, .flags = FLAGS, "mode" },
-        { "full", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = MODE_FULL}, 0, 0, .flags = FLAGS, "mode" },
-        { "fast", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = MODE_FAST}, 0, 0, .flags = FLAGS, "mode" },
-    { "nb_inputs",  "number of inputs",
-        OFFSET(nb_inputs),    AV_OPT_TYPE_INT,    {.i64 = 1},        1, INT_MAX,          FLAGS },
-    { "filename",   "filename for output files",
-        OFFSET(filename),     AV_OPT_TYPE_STRING, {.str = ""},       0, NB_FORMATS-1,     FLAGS },
+    { "filename",   "filename for output file",
+        OFFSET(filename), AV_OPT_TYPE_STRING, {.str = ""}, 0, NB_FORMATS-1, FLAGS },
     { "format",     "set output format",
-        OFFSET(format),       AV_OPT_TYPE_INT,    {.i64 = FORMAT_BINARY}, 0, 1,           FLAGS , "format" },
+        OFFSET(format),       AV_OPT_TYPE_INT, {.i64 = FORMAT_BINARY}, 0, 1, FLAGS , "format" },
         { "binary", 0, 0, AV_OPT_TYPE_CONST, {.i64=FORMAT_BINARY}, 0, 0, FLAGS, "format" },
         { "xml",    0, 0, AV_OPT_TYPE_CONST, {.i64=FORMAT_XML},    0, 0, FLAGS, "format" },
-    { "th_d",       "threshold to detect one word as similar",
-        OFFSET(thworddist),   AV_OPT_TYPE_INT,    {.i64 = 9000},     1, INT_MAX,          FLAGS },
-    { "th_dc",      "threshold to detect all words as similar",
-        OFFSET(thcomposdist), AV_OPT_TYPE_INT,    {.i64 = 60000},    1, INT_MAX,          FLAGS },
-    { "th_xh",      "threshold to detect frames as similar",
-        OFFSET(thl1),         AV_OPT_TYPE_INT,    {.i64 = 116},      1, INT_MAX,          FLAGS },
-    { "th_di",      "minimum length of matching sequence in frames",
-        OFFSET(thdi),         AV_OPT_TYPE_INT,    {.i64 = 0},        0, INT_MAX,          FLAGS },
-    { "th_it",      "threshold for relation of good to all frames",
-        OFFSET(thit),         AV_OPT_TYPE_DOUBLE, {.dbl = 0.5},    0.0, 1.0,              FLAGS },
     { NULL },
 };
 
@@ -815,7 +795,8 @@ static const AVFilterPad cudasign_inputs[] = {
     {
         .name        = "default",
         .type        = AVMEDIA_TYPE_VIDEO,
-        .filter_frame = cudasign_filter_frame,        
+        .filter_frame = cudasign_filter_frame,
+        .get_video_buffer = get_pass_video_buffer,
     },
     { NULL }
 };
