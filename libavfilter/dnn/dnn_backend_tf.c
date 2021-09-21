@@ -38,6 +38,7 @@
 
 typedef struct TFOptions{
     char *sess_config;
+    int device_id;
 } TFOptions;
 
 typedef struct TFContext {
@@ -57,6 +58,7 @@ typedef struct TFModel{
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption dnn_tensorflow_options[] = {
     { "sess_config", "config for SessionOptions", OFFSET(options.sess_config), AV_OPT_TYPE_STRING, { .str = NULL }, 0, 0, FLAGS },
+    { "device_id", "config for SessionOptions", OFFSET(options.device_id), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 255, FLAGS },
     { NULL }
 };
 
@@ -264,6 +266,11 @@ static DNNReturnType load_tf_model(TFModel *tf_model, const char *model_filename
     tf_model->graph = TF_NewGraph();
     tf_model->status = TF_NewStatus();
     graph_opts = TF_NewImportGraphDefOptions();
+    if(tf_model->ctx.options.device_id != -1) {
+        char sdevice[64] = {0,};
+        sprintf(sdevice,"/gpu:%d", tf_model->ctx.options.device_id);
+        TF_ImportGraphDefOptionsSetDefaultDevice(graph_opts, sdevice);
+    }
     TF_GraphImportGraphDef(tf_model->graph, graph_def, graph_opts, tf_model->status);
     TF_DeleteImportGraphDefOptions(graph_opts);
     TF_DeleteBuffer(graph_def);

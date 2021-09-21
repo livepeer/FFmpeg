@@ -82,7 +82,7 @@ static av_cold int init(AVFilterContext *context)
         ctx->logfile = NULL;
         av_log(ctx, AV_LOG_INFO, "output file for log is not specified\n");
     }
-
+    printf("backend_config: %s\n", ctx->dnnctx.backend_options, 30);
     ret = ff_dnn_init(&ctx->dnnctx, DFT_PROCESS_FRAME, context);
     if (ret != 0) {
         av_log(ctx, AV_LOG_ERROR, "failed to initialize DNN backend\n");
