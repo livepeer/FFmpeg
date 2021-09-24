@@ -404,6 +404,7 @@ extern AVFilter ff_vf_shuffleplanes;
 extern AVFilter ff_vf_sidedata;
 extern AVFilter ff_vf_signalstats;
 extern AVFilter ff_vf_signature;
+extern AVFilter ff_vf_signature_cuda;
 extern AVFilter ff_vf_smartblur;
 extern AVFilter ff_vf_sobel;
 extern AVFilter ff_vf_sobel_opencl;
