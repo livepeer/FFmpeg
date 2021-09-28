@@ -499,6 +499,9 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     // Coarse signatures
     // numOfSegments = number of coarse signatures
     numOfSegments = get_bits_long(&bitContext, 32);
+    if (!numOfSegments) {
+        return -1;
+    }
 
     sc->coarsesiglist = (CoarseSignature*)av_calloc(numOfSegments, sizeof(CoarseSignature));
     if(sc->coarsesiglist == NULL) {
