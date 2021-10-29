@@ -251,7 +251,6 @@ static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context
 static int pre_proc(AVFrame *frame, DNNData *input, AVFilterContext *log_ctx)
 {
     struct SwsContext *sws_ctx;
-    int bytewidth = av_image_get_linesize(frame->format, frame->width, 0);
     if (input->dt != DNN_FLOAT) {
         avpriv_report_missing_feature(log_ctx, "data type rather than DNN_FLOAT");
         return DNN_ERROR;
@@ -277,6 +276,7 @@ static int pre_proc(AVFrame *frame, DNNData *input, AVFilterContext *log_ctx)
                       frame->linesize, 0, frame->height,
                       (uint8_t *const *) (&input->data),
                       (const int[4]) {frame->width * 3 * sizeof(float), 0, 0, 0});
+            sws_freeContext(sws_ctx);
             break;
         default:
             av_log(log_ctx, AV_LOG_ERROR, "Unsupported input pixel format for DNN, only RGB24 is supported\n");
