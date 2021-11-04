@@ -412,6 +412,8 @@ static av_cold void cudasign_uninit(AVFilterContext *ctx)
         s->cu_module = NULL;
         CHECK_CU(cu->cuCtxPopCurrent(&dummy));
     }
+    //free hw_frames_ctx buffer for passthrough
+    av_buffer_unref(&s->frames_ctx);
 
     if(s->boxcpubuff)
         av_freep(&s->boxcpubuff);
