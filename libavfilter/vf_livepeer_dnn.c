@@ -70,6 +70,8 @@ AVFILTER_DEFINE_CLASS(livepeer);
 
 static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context);
 
+static int pre_proc(AVFrame *frame_in, DNNData *model_input, AVFilterContext *filter_ctx);
+
 static av_cold int init(AVFilterContext *context)
 {
     LivepeerContext *ctx = context->priv;
@@ -101,6 +103,7 @@ static av_cold int init(AVFilterContext *context)
         return AVERROR(EIO);
     }
 
+    ctx->dnnctx.model->pre_proc = pre_proc;
     ctx->dnnctx.model->post_proc = post_proc;
 
     return ret;
@@ -216,19 +219,70 @@ static int post_proc(AVFrame *out, DNNData *dnn_output, AVFilterContext *context
     int lendata = dnn_output->height;
     char slvpinfo[256] = {0,};
     char tokeninfo[64] = {0,};
+    char topcatidx_str[8] = {0,};
+    char topcatprob_str[8] = {0,};
     AVDictionary **metadata = &out->metadata;
 
     // need all inference probability as metadata
+    int topcatidx = -1;
+    float topcatprob = 0;
     for (int i = 0; i < lendata; i++) {
-        snprintf(tokeninfo, sizeof(tokeninfo), "%.2f,", pfdata[i]);
+        if (pfdata[i] > topcatprob) {
+            topcatprob = pfdata[i];
+            topcatidx = i;
+        }
+        snprintf(tokeninfo, sizeof(tokeninfo), "%.5f,", pfdata[i]);
         strcat(slvpinfo, tokeninfo);
     }
+    snprintf(topcatprob_str, sizeof(topcatprob_str), "%.5f,", topcatprob);
+    snprintf(topcatidx_str, sizeof(topcatidx_str), "%d", topcatidx);
+
     if (lendata > 0) {
         av_dict_set(metadata, "lavfi.lvpdnn.text", slvpinfo, 0);
+        av_dict_set(metadata, "lavfi.lvpdnn.top_cat", topcatidx_str, 0);
+        av_dict_set(metadata, "lavfi.lvpdnn.top_prob", topcatprob_str, 0);
         if (ctx->logfile != NULL) {
             fprintf(ctx->logfile, "%s\n", slvpinfo);
         }
     }
+    return DNN_SUCCESS;
+}
+
+static int pre_proc(AVFrame *frame, DNNData *input, AVFilterContext *log_ctx)
+{
+    struct SwsContext *sws_ctx;
+    if (input->dt != DNN_FLOAT) {
+        avpriv_report_missing_feature(log_ctx, "data type rather than DNN_FLOAT");
+        return DNN_ERROR;
+    }
+
+    switch (frame->format) {
+        case AV_PIX_FMT_RGB24:
+            sws_ctx = sws_getContext(frame->width * 3,
+                                     frame->height,
+                                     AV_PIX_FMT_GRAY8,
+                                     frame->width * 3,
+                                     frame->height,
+                                     AV_PIX_FMT_GRAYF32,
+                                     0, NULL, NULL, NULL);
+            if (!sws_ctx) {
+                av_log(log_ctx, AV_LOG_ERROR, "Impossible to create scale context for the conversion "
+                                              "fmt:%s s:%dx%d -> fmt:%s s:%dx%d\n",
+                       av_get_pix_fmt_name(AV_PIX_FMT_GRAY8), frame->width * 3, frame->height,
+                       av_get_pix_fmt_name(AV_PIX_FMT_GRAYF32), frame->width * 3, frame->height);
+                return DNN_ERROR;
+            }
+            sws_scale(sws_ctx, (const uint8_t **) frame->data,
+                      frame->linesize, 0, frame->height,
+                      (uint8_t *const *) (&input->data),
+                      (const int[4]) {frame->width * 3 * sizeof(float), 0, 0, 0});
+            sws_freeContext(sws_ctx);
+            break;
+        default:
+            av_log(log_ctx, AV_LOG_ERROR, "Unsupported input pixel format for DNN, only RGB24 is supported\n");
+            return DNN_ERROR;
+    }
+
     return DNN_SUCCESS;
 }
 
