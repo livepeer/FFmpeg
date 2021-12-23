@@ -387,28 +387,36 @@ static int cuda_device_create(AVHWDeviceContext *device_ctx,
     if (device)
         device_idx = strtol(device, NULL, 0);
 
-    if (cuda_device_init(device_ctx) < 0)
+    if (cuda_device_init(device_ctx) < 0) {
+        ret = AVERROR_UNKNOWN; //return non retriable error
         goto error;
+    }
 
     cu = hwctx->internal->cuda_dl;
 
     ret = CHECK_CU(cu->cuInit(0));
-    if (ret < 0)
+    if (ret < 0) {
+        ret = AVERROR_UNKNOWN; //return non retriable error
         goto error;
+    }
 
     ret = CHECK_CU(cu->cuDeviceGet(&hwctx->internal->cuda_device, device_idx));
-    if (ret < 0)
+    if (ret < 0) {
+        ret = AVERROR(ENODEV); //return retriable error
         goto error;
+    }
 
     ret = cuda_context_init(device_ctx, flags);
-    if (ret < 0)
+    if (ret < 0) {
+        ret = AVERROR_UNKNOWN; //return non retriable error
         goto error;
+    }
 
     return 0;
 
 error:
     cuda_device_uninit(device_ctx);
-    return AVERROR_UNKNOWN;
+    return ret;
 }
 
 static int cuda_device_derive(AVHWDeviceContext *device_ctx,
