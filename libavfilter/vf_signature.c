@@ -501,7 +501,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     // Coarse signatures
     // numOfSegments = number of coarse signatures
     numOfSegments = get_bits_long(&bitContext, 32);
-    if (!numOfSegments) {
+    if (numOfSegments <= 0) {
         return -1;
     }
 
@@ -545,6 +545,12 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
                 bCs->cSign->data[j][k] = get_bits(&bitContext, 8);
             }
             bCs->cSign->data[j][30] = get_bits(&bitContext, 3) << 5;
+        }
+        //check remain bit
+        if(totalLength - bitContext.index <= 0) {
+            av_free(sc->coarsesiglist);
+            av_free(bCoarseList);
+            return -1;
         }
     }
     sc->coarseend = &sc->coarsesiglist[numOfSegments - 1];
@@ -641,7 +647,10 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
                     bCs->cSign->last = fs;
                 }
             }
-
+        }
+        if(!bCs->cSign->first || !bCs->cSign->last) {
+           ret = -1;
+           break;
         }
         bCs->cSign->first->index = bCs->firstIndex;
         bCs->cSign->last->index = bCs->lastIndex;
