@@ -681,10 +681,10 @@ static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, in
         .streamcontexts = scontexts
     };
     if (binary_import(signbuf1, len1, &scontexts[0]) < 0 || binary_import(signbuf2, len2, &scontexts[1]) < 0) {
-        if(!scontexts[0].coarsesiglist) {
+        if(scontexts[0].coarsesiglist) {
             av_freep(&scontexts[0].coarsesiglist);
         }
-		if(!scontexts[1].coarsesiglist) {
+        if(scontexts[1].coarsesiglist) {
             av_freep(&scontexts[1].coarsesiglist);
         }
         av_log(NULL, AV_LOG_ERROR, "Could not create StreamContext from binary data for signature\n");
