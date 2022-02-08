@@ -501,7 +501,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     // Coarse signatures
     // numOfSegments = number of coarse signatures
     numOfSegments = get_bits_long(&bitContext, 32);
-    if (!numOfSegments) {
+    if (numOfSegments <= 0) {
         return -1;
     }
 
@@ -512,7 +512,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
 
     bCoarseList = (BoundedCoarseSignature*)av_calloc(numOfSegments, sizeof(BoundedCoarseSignature));
     if(bCoarseList == NULL) {
-        av_free(sc->coarsesiglist);
+        av_freep(&sc->coarsesiglist);
         return AVERROR(ENOMEM);
     }
 
@@ -546,6 +546,12 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
             }
             bCs->cSign->data[j][30] = get_bits(&bitContext, 3) << 5;
         }
+        //check remain bit
+        if(totalLength - bitContext.index <= 0) {
+            av_freep(&sc->coarsesiglist);
+            av_free(bCoarseList);
+            return -1;
+        }
     }
     sc->coarseend = &sc->coarsesiglist[numOfSegments - 1];
 
@@ -557,7 +563,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     // Check lastindex for validity
     finesigncount = (totalLength - bitContext.index) / MPEG7_FINESIG_NBITS;
     if (!finesigncount) {
-        av_free(sc->coarsesiglist);
+        av_freep(&sc->coarsesiglist);
         av_free(bCoarseList);
         return -1;
     }
@@ -566,7 +572,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
         sc->lastindex = finesigncount;
     sc->finesiglist = (FineSignature*)av_calloc(sc->lastindex, sizeof(FineSignature));
     if(sc->finesiglist == NULL) {
-        av_free(sc->coarsesiglist);
+        av_freep(&sc->coarsesiglist);
         av_free(bCoarseList);
         return AVERROR(ENOMEM);
     }
@@ -641,12 +647,18 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
                     bCs->cSign->last = fs;
                 }
             }
-
+        }
+        if(!bCs->cSign->first || !bCs->cSign->last) {
+           ret = -1;
+           break;
         }
         bCs->cSign->first->index = bCs->firstIndex;
         bCs->cSign->last->index = bCs->lastIndex;
     }
 
+    if(ret < 0) {
+        av_freep(&sc->coarsesiglist);
+    }
     av_free(bCoarseList);
 
     return ret;
@@ -669,7 +681,13 @@ static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, in
         .streamcontexts = scontexts
     };
     if (binary_import(signbuf1, len1, &scontexts[0]) < 0 || binary_import(signbuf2, len2, &scontexts[1]) < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Could not create StreamContext from binary data\n");
+        if(scontexts[0].coarsesiglist) {
+            av_freep(&scontexts[0].coarsesiglist);
+        }
+        if(scontexts[1].coarsesiglist) {
+            av_freep(&scontexts[1].coarsesiglist);
+        }
+        av_log(NULL, AV_LOG_ERROR, "Could not create StreamContext from binary data for signature\n");
         return ret;
     }
     result = lookup_signatures(NULL, &sigContext, &scontexts[0], &scontexts[1], MODE_FULL);
