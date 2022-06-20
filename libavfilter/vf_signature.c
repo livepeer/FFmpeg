@@ -627,12 +627,13 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
     // Assign FineSignatures to CoarseSignatures
     for (i = 0; i < numOfSegments; ++i) {
         BoundedCoarseSignature *bCs = &bCoarseList[i];
-
-        // O = n^2 probably it can be done faster
-        for (j = 0;  j < sc->lastindex  && sc->finesiglist[j].pts <= bCs->lastPts; ++j) {
+        uint64_t firstpts = bCs->firstPts;
+        if (firstpts > bCs->lastPts) {
+            firstpts = bCs->lastPts;
+        }
+        for (j = 0;  j < sc->lastindex; ++j) {
             FineSignature *fs = &sc->finesiglist[j];
-
-            if (fs->pts >= bCs->firstPts) {
+            if (fs->pts >= firstpts) {
                 // Check if the fragment's pts is inside coarse signature
                 // bounds. Upper bound is checked in for loop
                 if (!bCs->cSign->first) {
@@ -642,8 +643,7 @@ static int binary_import(uint8_t *buffer, int fileLength, StreamContext *sc)
                 if (bCs->cSign->last) {
                     if (bCs->cSign->last->pts <= fs->pts)
                         bCs->cSign->last = fs;
-                }
-                else {
+                } else {
                     bCs->cSign->last = fs;
                 }
             }
