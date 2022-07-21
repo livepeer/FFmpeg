@@ -673,9 +673,9 @@ static int compare_signbuffer(uint8_t* signbuf1, int len1, uint8_t* signbuf2, in
         .mode = MODE_FULL,
         .nb_inputs = INPUTS_COUNT,
         .filename = NULL,
-        .thworddist = 9000,
-        .thcomposdist = 60000,
-        .thl1 = 116,
+        .thworddist = 18000,
+        .thcomposdist = 120000,
+        .thl1 = 464,
         .thdi = 0,
         .thit = 0.5,
         .streamcontexts = scontexts
