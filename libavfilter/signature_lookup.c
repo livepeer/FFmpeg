@@ -427,6 +427,7 @@ static MatchingInfo evaluate_parameters(AVFilterContext *ctx, SignatureContext *
     for (; infos != NULL; infos = infos->next) {
         a = infos->first;
         b = infos->second;
+        if (a == NULL || b == NULL) continue;
         while (1) {
             dist = get_l1dist(ctx, sc, a->framesig, b->framesig);
 
@@ -541,6 +542,7 @@ static MatchingInfo lookup_signatures(AVFilterContext *ctx, SignatureContext *sc
     cs2 = second->coarsesiglist;
 
     /* score of bestmatch is 0, if no match is found */
+    memset(&bestmatch, 0x00, sizeof(MatchingInfo));
     bestmatch.score = 0;
     bestmatch.meandist = 99999;
     bestmatch.whole = 0;
@@ -568,10 +570,12 @@ static MatchingInfo lookup_signatures(AVFilterContext *ctx, SignatureContext *sc
         av_log(ctx, AV_LOG_DEBUG, "Stage 3: evaluate\n");
         if (infos) {
             bestmatch = evaluate_parameters(ctx, sc, infos, bestmatch, mode);
-            av_log(ctx, AV_LOG_DEBUG, "Stage 3: best matching pair at %"PRIu32" and %"PRIu32", "
+            if (av_log_get_level() == AV_LOG_DEBUG && bestmatch.first != NULL && bestmatch.second  != NULL) {
+                av_log(ctx, AV_LOG_DEBUG, "Stage 3: best matching pair at %"PRIu32" and %"PRIu32", "
                    "ratio %f, offset %d, score %d, %d frames matching\n",
                    bestmatch.first->index, bestmatch.second->index,
                    bestmatch.framerateratio, bestmatch.offset, bestmatch.score, bestmatch.matchframes);
+            }
             sll_free(infos);
         }
     } while (find_next_coarsecandidate(sc, second->coarsesiglist, &cs, &cs2, 0) && !bestmatch.whole);
