@@ -21,6 +21,11 @@
 #define AVUTIL_CUDA_CHECK_H
 
 #include "compat/cuda/dynlink_loader.h"
+/*
+ * Defined in the driver API
+ * https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TYPES.html
+ */
+#define CUDA_ERROR_OUT_OF_MEMORY 2
 
 typedef CUresult CUDAAPI cuda_check_GetErrorName(CUresult error, const char** pstr);
 typedef CUresult CUDAAPI cuda_check_GetErrorString(CUresult error, const char** pstr);
@@ -47,6 +52,9 @@ static inline int ff_cuda_check(void *avctx,
     if (err_name && err_string)
         av_log(avctx, AV_LOG_ERROR, " -> %s: %s", err_name, err_string);
     av_log(avctx, AV_LOG_ERROR, "\n");
+
+    if (err == CUDA_ERROR_OUT_OF_MEMORY)
+        return AVERROR(ENOMEM);
 
     return AVERROR_EXTERNAL;
 }

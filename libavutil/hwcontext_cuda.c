@@ -408,7 +408,8 @@ static int cuda_device_create(AVHWDeviceContext *device_ctx,
 
     ret = cuda_context_init(device_ctx, flags);
     if (ret < 0) {
-        ret = AVERROR_UNKNOWN;
+        if (ret == AVERROR_EXTERNAL)
+            ret = AVERROR_UNKNOWN;
         goto error;
     }
 
