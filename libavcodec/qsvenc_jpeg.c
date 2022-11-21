@@ -95,5 +95,4 @@ AVCodec ff_mjpeg_qsv_encoder = {
     .priv_class     = &class,
     .defaults       = qsv_enc_defaults,
     .wrapper_name   = "qsv",
-    .hw_configs     = ff_qsv_enc_hw_configs,
 };

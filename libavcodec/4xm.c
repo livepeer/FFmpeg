@@ -30,7 +30,6 @@
 #include "libavutil/frame.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
-#include "libavutil/mem_internal.h"
 #include "avcodec.h"
 #include "blockdsp.h"
 #include "bswapdsp.h"
@@ -499,8 +498,8 @@ static int decode_i_block(FourXContext *f, int16_t *block)
 {
     int code, i, j, level, val;
 
-    if (get_bits_left(&f->pre_gb) < 2) {
-        av_log(f->avctx, AV_LOG_ERROR, "%d bits left before decode_i_block()\n", get_bits_left(&f->pre_gb));
+    if (get_bits_left(&f->gb) < 2){
+        av_log(f->avctx, AV_LOG_ERROR, "%d bits left before decode_i_block()\n", get_bits_left(&f->gb));
         return AVERROR_INVALIDDATA;
     }
 
@@ -526,10 +525,6 @@ static int decode_i_block(FourXContext *f, int16_t *block)
             break;
         if (code == 0xf0) {
             i += 16;
-            if (i >= 64) {
-                av_log(f->avctx, AV_LOG_ERROR, "run %d overflow\n", i);
-                return 0;
-            }
         } else {
             if (code & 0xf) {
                 level = get_xbits(&f->gb, code & 0xf);

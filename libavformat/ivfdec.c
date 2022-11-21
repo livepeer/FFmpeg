@@ -53,8 +53,7 @@ static int read_header(AVFormatContext *s)
     st->codecpar->height     = avio_rl16(s->pb);
     time_base.den         = avio_rl32(s->pb);
     time_base.num         = avio_rl32(s->pb);
-    st->duration          = avio_rl32(s->pb);
-    avio_skip(s->pb, 4); // unused
+    st->duration          = avio_rl64(s->pb);
 
     st->need_parsing      = AVSTREAM_PARSE_HEADERS;
 

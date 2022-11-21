@@ -27,7 +27,6 @@
  */
 
 #include "libavutil/attributes.h"
-#include "libavutil/thread.h"
 #include "internal.h"
 #include "avcodec.h"
 #include "mpegvideo.h"
@@ -452,11 +451,7 @@ static int decode_sequence_header_adv(VC1Context *v, GetBitContext *gb)
             h = get_bits(gb, 8) + 1;
             v->s.avctx->sample_aspect_ratio = (AVRational){w, h};
         } else {
-            if (v->s.avctx->width  > v->max_coded_width ||
-                v->s.avctx->height > v->max_coded_height) {
-                avpriv_request_sample(v->s.avctx, "Huge resolution");
-            } else
-                av_reduce(&v->s.avctx->sample_aspect_ratio.num,
+            av_reduce(&v->s.avctx->sample_aspect_ratio.num,
                       &v->s.avctx->sample_aspect_ratio.den,
                       v->s.avctx->height * w,
                       v->s.avctx->width * h,
@@ -938,9 +933,7 @@ int ff_vc1_parse_frame_header_adv(VC1Context *v, GetBitContext* gb)
         else if ((v->s.pict_type != AV_PICTURE_TYPE_B) && (v->s.pict_type != AV_PICTURE_TYPE_BI)) {
             v->refdist = get_bits(gb, 2);
             if (v->refdist == 3)
-                v->refdist += get_unary(gb, 0, 14);
-            if (v->refdist > 16)
-                return AVERROR_INVALIDDATA;
+                v->refdist += get_unary(gb, 0, 16);
         }
         if ((v->s.pict_type == AV_PICTURE_TYPE_B) || (v->s.pict_type == AV_PICTURE_TYPE_BI)) {
             if (read_bfraction(v, gb) < 0)
@@ -1320,17 +1313,16 @@ int ff_vc1_parse_frame_header_adv(VC1Context *v, GetBitContext* gb)
         break;
     }
 
+    if (v->fcm != PROGRESSIVE && !v->s.quarter_sample) {
+        v->range_x <<= 1;
+        v->range_y <<= 1;
+    }
 
     /* AC Syntax */
     v->c_ac_table_index = decode012(gb);
     if (v->s.pict_type == AV_PICTURE_TYPE_I || v->s.pict_type == AV_PICTURE_TYPE_BI) {
         v->y_ac_table_index = decode012(gb);
     }
-    else if (v->fcm != PROGRESSIVE && !v->s.quarter_sample) {
-        v->range_x <<= 1;
-        v->range_y <<= 1;
-    }
-
     /* DC Syntax */
     v->s.dc_table_index = get_bits1(gb);
     if ((v->s.pict_type == AV_PICTURE_TYPE_I || v->s.pict_type == AV_PICTURE_TYPE_BI)
@@ -1577,11 +1569,21 @@ static const uint16_t vlc_offs[] = {
     31714, 31746, 31778, 32306, 32340, 32372
 };
 
-static av_cold void vc1_init_static(void)
+/**
+ * Init VC-1 specific tables and VC1Context members
+ * @param v The VC1Context to initialize
+ * @return Status
+ */
+av_cold int ff_vc1_init_common(VC1Context *v)
 {
+    static int done = 0;
     int i = 0;
     static VLC_TYPE vlc_table[32372][2];
 
+    v->hrd_rate = v->hrd_buffer = NULL;
+
+    /* VLC tables */
+    if (!done) {
         INIT_VLC_STATIC(&ff_vc1_bfraction_vlc, VC1_BFRACTION_VLC_BITS, 23,
                         ff_vc1_bfraction_bits, 1, 1,
                         ff_vc1_bfraction_codes, 1, 1, 1 << VC1_BFRACTION_VLC_BITS);
@@ -1688,27 +1690,14 @@ static av_cold void vc1_init_static(void)
                      ff_vc1_if_1mv_mbmode_bits[i], 1, 1,
                      ff_vc1_if_1mv_mbmode_codes[i], 1, 1, INIT_VLC_USE_NEW_STATIC);
         }
-}
+        done = 1;
+    }
 
-/**
- * Init VC-1 specific tables and VC1Context members
- * @param v The VC1Context to initialize
- * @return Status
- */
-av_cold int ff_vc1_init_common(VC1Context *v)
-{
-    static AVOnce init_static_once = AV_ONCE_INIT;
-
-    v->hrd_rate = v->hrd_buffer = NULL;
-
-    /* defaults */
+    /* Other defaults */
     v->pq      = -1;
     v->mvrange = 0; /* 7.1.1.18, p80 */
 
     ff_vc1dsp_init(&v->vc1dsp);
-
-    /* VLC tables */
-    ff_thread_once(&init_static_once, vc1_init_static);
 
     return 0;
 }

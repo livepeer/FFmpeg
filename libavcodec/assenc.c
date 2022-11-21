@@ -93,7 +93,7 @@ static int ass_encode_frame(AVCodecContext *avctx,
 
         if (len > bufsize-total_len-1) {
             av_log(avctx, AV_LOG_ERROR, "Buffer too small for ASS event.\n");
-            return AVERROR_BUFFER_TOO_SMALL;
+            return AVERROR(EINVAL);
         }
 
         total_len += len;

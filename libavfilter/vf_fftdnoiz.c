@@ -129,11 +129,6 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_YUV420P16, AV_PIX_FMT_YUV422P16, AV_PIX_FMT_YUV444P16,
         AV_PIX_FMT_GBRP, AV_PIX_FMT_GBRP9, AV_PIX_FMT_GBRP10,
         AV_PIX_FMT_GBRP12, AV_PIX_FMT_GBRP14, AV_PIX_FMT_GBRP16,
-        AV_PIX_FMT_YUVA420P,  AV_PIX_FMT_YUVA422P,   AV_PIX_FMT_YUVA444P,
-        AV_PIX_FMT_YUVA444P9, AV_PIX_FMT_YUVA444P10, AV_PIX_FMT_YUVA444P12, AV_PIX_FMT_YUVA444P16,
-        AV_PIX_FMT_YUVA422P9, AV_PIX_FMT_YUVA422P10, AV_PIX_FMT_YUVA422P12, AV_PIX_FMT_YUVA422P16,
-        AV_PIX_FMT_YUVA420P9, AV_PIX_FMT_YUVA420P10, AV_PIX_FMT_YUVA420P16,
-        AV_PIX_FMT_GBRAP,     AV_PIX_FMT_GBRAP10,    AV_PIX_FMT_GBRAP12,    AV_PIX_FMT_GBRAP16,
         AV_PIX_FMT_NONE
     };
     AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
@@ -161,7 +156,7 @@ static void export_row8(FFTComplex *src, uint8_t *dst, int rw, float scale, int 
     int j;
 
     for (j = 0; j < rw; j++)
-        dst[j] = av_clip_uint8(src[j].re * scale + 0.5f);
+        dst[j] = av_clip_uint8(src[j].re * scale);
 }
 
 static void import_row16(FFTComplex *dst, uint8_t *srcp, int rw)
@@ -181,7 +176,7 @@ static void export_row16(FFTComplex *src, uint8_t *dstp, int rw, float scale, in
     int j;
 
     for (j = 0; j < rw; j++)
-        dst[j] = av_clip_uintp2_c(src[j].re * scale + 0.5f, depth);
+        dst[j] = av_clip_uintp2_c(src[j].re * scale, depth);
 }
 
 static int config_input(AVFilterLink *inlink)

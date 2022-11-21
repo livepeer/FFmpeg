@@ -168,10 +168,6 @@ static int cine_read_header(AVFormatContext *avctx)
     avio_skip(pb, 616); // Binning .. bFlipH
     if (!avio_rl32(pb) ^ vflip) {
         st->codecpar->extradata  = av_strdup("BottomUp");
-        if (!st->codecpar->extradata) {
-            st->codecpar->extradata_size = 0;
-            return AVERROR(ENOMEM);
-        }
         st->codecpar->extradata_size  = 9;
     }
 
@@ -288,7 +284,7 @@ static int cine_read_packet(AVFormatContext *avctx, AVPacket *pkt)
     AVIOContext *pb = avctx->pb;
     int n, size, ret;
 
-    if (cine->pts >= st->nb_index_entries)
+    if (cine->pts >= st->duration)
         return AVERROR_EOF;
 
     avio_seek(pb, st->index_entries[cine->pts].pos, SEEK_SET);

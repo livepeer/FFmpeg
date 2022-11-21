@@ -20,14 +20,15 @@
  */
 
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mathematics.h"
 #include "libavutil/dict.h"
 #include "avformat.h"
 #include "internal.h"
 #include "pcm.h"
 #include "aiff.h"
+#include "isom.h"
 #include "id3v2.h"
 #include "mov_chan.h"
-#include "replaygain.h"
 
 #define AIFF                    0
 #define AIFF_C_VERSION1         0xA2805140
@@ -118,8 +119,6 @@ static int get_aiff_header(AVFormatContext *s, int size,
     else
         sample_rate = (val + (1ULL<<(-exp-1))) >> -exp;
     par->sample_rate = sample_rate;
-    if (size < 18)
-        return AVERROR_INVALIDDATA;
     size -= 18;
 
     /* get codec id for AIFF-C */
@@ -243,10 +242,7 @@ static int aiff_read_header(AVFormatContext *s)
         if (size < 0)
             return size;
 
-        if (size >= 0x7fffffff - 8)
-            filesize = 0;
-        else
-            filesize -= size + 8;
+        filesize -= size + 8;
 
         switch (tag) {
         case MKTAG('C', 'O', 'M', 'M'):     /* Common chunk */
@@ -261,8 +257,8 @@ static int aiff_read_header(AVFormatContext *s)
             position = avio_tell(pb);
             ff_id3v2_read(s, ID3v2_DEFAULT_MAGIC, &id3v2_extra_meta, size);
             if (id3v2_extra_meta)
-                if ((ret = ff_id3v2_parse_apic(s, id3v2_extra_meta)) < 0 ||
-                    (ret = ff_id3v2_parse_chapters(s, id3v2_extra_meta)) < 0) {
+                if ((ret = ff_id3v2_parse_apic(s, &id3v2_extra_meta)) < 0 ||
+                    (ret = ff_id3v2_parse_chapters(s, &id3v2_extra_meta)) < 0) {
                     ff_id3v2_free_extra_meta(&id3v2_extra_meta);
                     return ret;
                 }
@@ -286,8 +282,6 @@ static int aiff_read_header(AVFormatContext *s)
             get_meta(s, "comment"  , size);
             break;
         case MKTAG('S', 'S', 'N', 'D'):     /* Sampled sound chunk */
-            if (size < 8)
-                return AVERROR_INVALIDDATA;
             aiff->data_end = avio_tell(pb) + size;
             offset = avio_rb32(pb);      /* Offset of sound data */
             avio_rb32(pb);               /* BlockSize... don't care */
@@ -303,8 +297,8 @@ static int aiff_read_header(AVFormatContext *s)
         case MKTAG('w', 'a', 'v', 'e'):
             if ((uint64_t)size > (1<<30))
                 return -1;
-            if ((ret = ff_get_extradata(s, st->codecpar, pb, size)) < 0)
-                return ret;
+            if (ff_get_extradata(s, st->codecpar, pb, size) < 0)
+                return AVERROR(ENOMEM);
             if (   (st->codecpar->codec_id == AV_CODEC_ID_QDMC || st->codecpar->codec_id == AV_CODEC_ID_QDM2)
                 && size>=12*4 && !st->codecpar->block_align) {
                 st->codecpar->block_align = AV_RB32(st->codecpar->extradata+11*4);
@@ -327,8 +321,8 @@ static int aiff_read_header(AVFormatContext *s)
             }
             break;
         case MKTAG('C','H','A','N'):
-            if ((ret = ff_mov_read_chan(s, pb, st, size)) < 0)
-                return ret;
+            if(ff_mov_read_chan(s, pb, st, size) < 0)
+                return AVERROR_INVALIDDATA;
             break;
         case MKTAG('A','P','C','M'): /* XA ADPCM compressed sound chunk */
             st->codecpar->codec_id = AV_CODEC_ID_ADPCM_XA;
@@ -353,10 +347,6 @@ static int aiff_read_header(AVFormatContext *s)
             avio_skip(pb, 1);
         }
     }
-
-    ret = ff_replaygain_export(st, s->metadata);
-    if (ret < 0)
-        return ret;
 
 got_sound:
     if (!st->codecpar->block_align && st->codecpar->codec_id == AV_CODEC_ID_QCELP) {
@@ -408,8 +398,6 @@ static int aiff_read_packet(AVFormatContext *s,
         break;
     default:
         size = st->codecpar->block_align ? (MAX_SIZE / st->codecpar->block_align) * st->codecpar->block_align : MAX_SIZE;
-        if (!size)
-            return AVERROR_INVALIDDATA;
     }
     size = FFMIN(max_size, size);
     res = av_get_packet(s->pb, pkt, size);
@@ -432,5 +420,5 @@ AVInputFormat ff_aiff_demuxer = {
     .read_header    = aiff_read_header,
     .read_packet    = aiff_read_packet,
     .read_seek      = ff_pcm_read_seek,
-    .codec_tag      = ff_aiff_codec_tags_list,
+    .codec_tag      = (const AVCodecTag* const []){ ff_codec_aiff_tags, 0 },
 };

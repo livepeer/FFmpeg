@@ -176,6 +176,8 @@ typedef struct VC1Context{
     H264ChromaContext h264chroma;
     VC1DSPContext vc1dsp;
 
+    int bits;
+
     /** Simple/Main Profile sequence header */
     //@{
     int res_sprite;       ///< reserved, sprite mode

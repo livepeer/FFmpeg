@@ -71,7 +71,7 @@ static int wtvfile_read_packet(void *opaque, uint8_t *buf, int buf_size)
 {
     WtvFile *wf = opaque;
     AVIOContext *pb = wf->pb_filesystem;
-    int nread = 0, n = 0;
+    int nread = 0;
 
     if (wf->error || pb->error)
         return -1;
@@ -80,6 +80,7 @@ static int wtvfile_read_packet(void *opaque, uint8_t *buf, int buf_size)
 
     buf_size = FFMIN(buf_size, wf->length - wf->position);
     while(nread < buf_size) {
+        int n;
         int remaining_in_sector = (1 << wf->sector_bits) - (wf->position & ((1 << wf->sector_bits) - 1));
         int read_request        = FFMIN(buf_size - nread, remaining_in_sector);
 
@@ -99,7 +100,7 @@ static int wtvfile_read_packet(void *opaque, uint8_t *buf, int buf_size)
             }
         }
     }
-    return nread ? nread : n;
+    return nread;
 }
 
 /**
@@ -273,11 +274,6 @@ static AVIOContext * wtvfile_open2(AVFormatContext *s, const uint8_t *buf, int b
                    "bad filename length, remaining directory entries ignored\n");
             break;
         }
-        if (dir_length == 0) {
-            av_log(s, AV_LOG_ERROR,
-                   "bad dir length, remaining directory entries ignored\n");
-            break;
-        }
         if (48 + (int64_t)name_size > buf_end - buf) {
             av_log(s, AV_LOG_ERROR, "filename exceeds buffer size; remaining directory entries ignored\n");
             break;
@@ -294,7 +290,7 @@ static AVIOContext * wtvfile_open2(AVFormatContext *s, const uint8_t *buf, int b
 
         buf += dir_length;
     }
-    return NULL;
+    return 0;
 }
 
 #define wtvfile_open(s, buf, buf_size, filename) \
@@ -794,7 +790,7 @@ static int parse_chunks(AVFormatContext *s, int mode, int64_t seekts, int *len_p
 
         ff_get_guid(pb, &g);
         len = avio_rl32(pb);
-        if (len < 32 || len > INT_MAX - 7) {
+        if (len < 32) {
             int ret;
             if (avio_feof(pb))
                 return AVERROR_EOF;
@@ -817,8 +813,6 @@ static int parse_chunks(AVFormatContext *s, int mode, int64_t seekts, int *len_p
                 avio_skip(pb, 12);
                 ff_get_guid(pb, &formattype);
                 size = avio_rl32(pb);
-                if (size < 0 || size > INT_MAX - 92)
-                    return AVERROR_INVALIDDATA;
                 parse_media_type(s, 0, sid, mediatype, subtype, formattype, size);
                 consumed += 92 + size;
             }
@@ -833,8 +827,6 @@ static int parse_chunks(AVFormatContext *s, int mode, int64_t seekts, int *len_p
                 avio_skip(pb, 12);
                 ff_get_guid(pb, &formattype);
                 size = avio_rl32(pb);
-                if (size < 0 || size > INT_MAX - 76)
-                    return AVERROR_INVALIDDATA;
                 parse_media_type(s, s->streams[stream_index], sid, mediatype, subtype, formattype, size);
                 consumed += 76 + size;
             }
@@ -912,10 +904,10 @@ static int parse_chunks(AVFormatContext *s, int mode, int64_t seekts, int *len_p
                     wtv->last_valid_pts = wtv->pts;
                     if (wtv->epoch == AV_NOPTS_VALUE || wtv->pts < wtv->epoch)
                         wtv->epoch = wtv->pts;
-                    if (mode == SEEK_TO_PTS && wtv->pts >= seekts) {
-                        avio_skip(pb, WTV_PAD8(len) - consumed);
-                        return 0;
-                    }
+                if (mode == SEEK_TO_PTS && wtv->pts >= seekts) {
+                    avio_skip(pb, WTV_PAD8(len) - consumed);
+                    return 0;
+                }
                 }
             }
         } else if (!ff_guidcmp(g, ff_data_guid)) {
@@ -956,9 +948,6 @@ static int parse_chunks(AVFormatContext *s, int mode, int64_t seekts, int *len_p
             //ignore known guids
         } else
             av_log(s, AV_LOG_WARNING, "unsupported chunk:"FF_PRI_GUID"\n", FF_ARG_GUID(g));
-
-        if (avio_feof(pb))
-            break;
 
         avio_skip(pb, WTV_PAD8(len) - consumed);
     }
@@ -1004,10 +993,8 @@ static int read_header(AVFormatContext *s)
     }
 
     ret = parse_chunks(s, SEEK_TO_DATA, 0, 0);
-    if (ret < 0) {
-        wtvfile_close(wtv->pb);
+    if (ret < 0)
         return ret;
-    }
     avio_seek(wtv->pb, -32, SEEK_CUR);
 
     timeline_pos = avio_tell(s->pb); // save before opening another file

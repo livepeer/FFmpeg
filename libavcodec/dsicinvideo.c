@@ -58,6 +58,7 @@ static av_cold int allocate_buffers(CinVideoContext *cin)
         cin->bitmap_table[i] = av_mallocz(cin->bitmap_size);
         if (!cin->bitmap_table[i]) {
             av_log(cin->avctx, AV_LOG_ERROR, "Can't allocate bitmap buffers.\n");
+            destroy_buffers(cin);
             return AVERROR(ENOMEM);
         }
     }
@@ -289,7 +290,7 @@ static int cinvideo_decode_frame(AVCodecContext *avctx,
         break;
     }
 
-    if ((res = ff_reget_buffer(avctx, cin->frame, 0)) < 0)
+    if ((res = ff_reget_buffer(avctx, cin->frame)) < 0)
         return res;
 
     memcpy(cin->frame->data[1], cin->palette, sizeof(cin->palette));

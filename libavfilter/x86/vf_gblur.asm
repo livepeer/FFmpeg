@@ -100,7 +100,7 @@ cglobal horiz_slice, 4, 9, 9, ptr, width, height, steps, nu, bscale, x, y, step,
 
         add widthq, remainq
         cmp xq, widthq
-        jge .end_scalar
+        je .end_scalar
 
         .loop_scalar:
             ; ptr[x] += nu * ptr[x-1]
@@ -148,7 +148,7 @@ cglobal horiz_slice, 4, 9, 9, ptr, width, height, steps, nu, bscale, x, y, step,
             jg .loop_x_back
 
         cmp xq, 0
-        jle .end_scalar_back
+        je .end_scalar_back
 
         .loop_scalar_back:
             ; ptr[x-1] += nu * ptr[x]
@@ -182,50 +182,4 @@ HORIZ_SLICE
 
 INIT_XMM avx2
 HORIZ_SLICE
-%endif
-
-%macro POSTSCALE_SLICE 0
-cglobal postscale_slice, 2, 2, 4, ptr, length, postscale, min, max
-    shl lengthd, 2
-    add ptrq, lengthq
-    neg lengthq
-%if ARCH_X86_32
-    VBROADCASTSS m0, postscalem
-    VBROADCASTSS m1, minm
-    VBROADCASTSS m2, maxm
-%elif WIN64
-    SWAP 0, 2
-    SWAP 1, 3
-    VBROADCASTSS m0, xm0
-    VBROADCASTSS m1, xm1
-    VBROADCASTSS m2, maxm
-%else ; UNIX64
-    VBROADCASTSS m0, xm0
-    VBROADCASTSS m1, xm1
-    VBROADCASTSS m2, xm2
-%endif
-
-    .loop:
-%if cpuflag(avx2)
-    mulps         m3, m0, [ptrq + lengthq]
-%else
-    movu          m3, [ptrq + lengthq]
-    mulps         m3, m0
-%endif
-    maxps         m3, m1
-    minps         m3, m2
-    movu   [ptrq+lengthq], m3
-
-    add lengthq, mmsize
-    jl .loop
-
-    RET
-%endmacro
-
-INIT_XMM sse
-POSTSCALE_SLICE
-
-%if HAVE_AVX2_EXTERNAL
-INIT_YMM avx2
-POSTSCALE_SLICE
 %endif

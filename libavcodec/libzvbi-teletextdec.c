@@ -55,7 +55,6 @@ typedef struct TeletextContext
 {
     AVClass        *class;
     char           *pgno;
-    int             default_region;
     int             x_offset;
     int             y_offset;
     int             format_id; /* 0 = bitmap, 1 = text/ass, 2 = ass */
@@ -636,7 +635,7 @@ static int slice_to_vbi_lines(TeletextContext *ctx, uint8_t* buf, int size)
     return lines;
 }
 
-static int teletext_decode_frame(AVCodecContext *avctx, void *data, int *got_sub_ptr, AVPacket *pkt)
+static int teletext_decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPacket *pkt)
 {
     TeletextContext *ctx = avctx->priv_data;
     AVSubtitle      *sub = data;
@@ -646,10 +645,6 @@ static int teletext_decode_frame(AVCodecContext *avctx, void *data, int *got_sub
     if (!ctx->vbi) {
         if (!(ctx->vbi = vbi_decoder_new()))
             return AVERROR(ENOMEM);
-        if (ctx->default_region != -1) {
-            av_log(avctx, AV_LOG_INFO, "Setting default zvbi region to %i\n", ctx->default_region);
-            vbi_teletext_set_default_region(ctx->vbi, ctx->default_region);
-        }
         if (!vbi_event_handler_register(ctx->vbi, VBI_EVENT_TTX_PAGE, handler, ctx)) {
             vbi_decoder_delete(ctx->vbi);
             ctx->vbi = NULL;
@@ -724,9 +719,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
         ctx->nb_pages--;
 
         if (ret >= 0)
-            *got_sub_ptr = 1;
+            *data_size = 1;
     } else
-        *got_sub_ptr = 0;
+        *data_size = 0;
 
     return ret;
 }
@@ -797,7 +792,6 @@ static void teletext_flush(AVCodecContext *avctx)
 #define SD AV_OPT_FLAG_SUBTITLE_PARAM | AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     {"txt_page",        "page numbers to decode, subtitle for subtitles, * for all", OFFSET(pgno),   AV_OPT_TYPE_STRING, {.str = "*"},      0, 0,        SD},
-    {"txt_default_region", "default G0 character set used for decoding",     OFFSET(default_region), AV_OPT_TYPE_INT,    {.i64 = -1},      -1, 87,       SD},
     {"txt_chop_top",    "discards the top teletext line",                    OFFSET(chop_top),       AV_OPT_TYPE_INT,    {.i64 = 1},        0, 1,        SD},
     {"txt_format",      "format of the subtitles (bitmap or text or ass)",   OFFSET(format_id),      AV_OPT_TYPE_INT,    {.i64 = 0},        0, 2,        SD,  "txt_format"},
     {"bitmap",          NULL,                                                0,                      AV_OPT_TYPE_CONST,  {.i64 = 0},        0, 0,        SD,  "txt_format"},

@@ -1194,7 +1194,7 @@ static int opencl_filter_drm_arm_device(AVHWDeviceContext *hwdev,
 #endif
 
 static int opencl_device_derive(AVHWDeviceContext *hwdev,
-                                AVHWDeviceContext *src_ctx, AVDictionary *opts,
+                                AVHWDeviceContext *src_ctx,
                                 int flags)
 {
     int err;
@@ -1207,16 +1207,16 @@ static int opencl_device_derive(AVHWDeviceContext *hwdev,
             // Surface mapping works via DRM PRIME fds with no special
             // initialisation required in advance.  This just finds the
             // Beignet ICD by name.
-            AVDictionary *selector_opts = NULL;
+            AVDictionary *opts = NULL;
 
-            err = av_dict_set(&selector_opts, "platform_vendor", "Intel", 0);
+            err = av_dict_set(&opts, "platform_vendor", "Intel", 0);
             if (err >= 0)
-                err = av_dict_set(&selector_opts, "platform_version", "beignet", 0);
+                err = av_dict_set(&opts, "platform_version", "beignet", 0);
             if (err >= 0) {
                 OpenCLDeviceSelector selector = {
                     .platform_index      = -1,
                     .device_index        = 0,
-                    .context             = selector_opts,
+                    .context             = opts,
                     .enumerate_platforms = &opencl_enumerate_platforms,
                     .filter_platform     = &opencl_filter_platform,
                     .enumerate_devices   = &opencl_enumerate_devices,
@@ -1224,7 +1224,7 @@ static int opencl_device_derive(AVHWDeviceContext *hwdev,
                 };
                 err = opencl_device_create_internal(hwdev, &selector, NULL);
             }
-            av_dict_free(&selector_opts);
+            av_dict_free(&opts);
         }
         break;
 #endif
@@ -1617,7 +1617,7 @@ static void opencl_pool_free(void *opaque, uint8_t *data)
     av_free(desc);
 }
 
-static AVBufferRef *opencl_pool_alloc(void *opaque, buffer_size_t size)
+static AVBufferRef *opencl_pool_alloc(void *opaque, int size)
 {
     AVHWFramesContext      *hwfc = opaque;
     AVOpenCLDeviceContext *hwctx = hwfc->device_ctx->hwctx;

@@ -193,13 +193,13 @@ static int decode_main_header(NUTContext *nut)
 {
     AVFormatContext *s = nut->avf;
     AVIOContext *bc    = s->pb;
-    uint64_t tmp, end, length;
+    uint64_t tmp, end;
     unsigned int stream_count;
     int i, j, count, ret;
     int tmp_stream, tmp_mul, tmp_pts, tmp_size, tmp_res, tmp_head_idx;
 
-    length = get_packetheader(nut, bc, 1, MAIN_STARTCODE);
-    end = length + avio_tell(bc);
+    end  = get_packetheader(nut, bc, 1, MAIN_STARTCODE);
+    end += avio_tell(bc);
 
     nut->version = ffio_read_varlen(bc);
     if (nut->version < NUT_MIN_VERSION ||
@@ -219,7 +219,7 @@ static int decode_main_header(NUTContext *nut)
         nut->max_distance = 65536;
     }
 
-    GET_V(nut->time_base_count, tmp > 0 && tmp < INT_MAX / sizeof(AVRational) && tmp < length/2);
+    GET_V(nut->time_base_count, tmp > 0 && tmp < INT_MAX / sizeof(AVRational));
     nut->time_base = av_malloc_array(nut->time_base_count, sizeof(AVRational));
     if (!nut->time_base)
         return AVERROR(ENOMEM);
@@ -260,7 +260,7 @@ static int decode_main_header(NUTContext *nut)
         if (tmp_fields > 5)
             count = ffio_read_varlen(bc);
         else
-            count = tmp_mul - (unsigned)tmp_size;
+            count = tmp_mul - tmp_size;
         if (tmp_fields > 6)
             get_s(bc);
         if (tmp_fields > 7)
@@ -427,10 +427,8 @@ static int decode_stream_header(NUTContext *nut)
 
     GET_V(st->codecpar->extradata_size, tmp < (1 << 30));
     if (st->codecpar->extradata_size) {
-        ret = ff_get_extradata(s, st->codecpar, bc,
-                               st->codecpar->extradata_size);
-        if (ret < 0)
-            return ret;
+        if (ff_get_extradata(s, st->codecpar, bc, st->codecpar->extradata_size) < 0)
+            return AVERROR(ENOMEM);
     }
 
     if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
@@ -489,8 +487,8 @@ static int decode_info_header(NUTContext *nut)
     AVIOContext *bc    = s->pb;
     uint64_t tmp, chapter_start, chapter_len;
     unsigned int stream_id_plus1, count;
-    int i, ret = 0;
-    int64_t chapter_id, value, end;
+    int chapter_id, i, ret = 0;
+    int64_t value, end;
     char name[256], str_value[1024], type_str[256];
     const char *type;
     int *event_flags        = NULL;
@@ -1277,13 +1275,13 @@ static int read_seek(AVFormatContext *s, int stream_index,
         av_assert0(sp);
         pos2 = sp->back_ptr - 15;
     }
-    av_log(s, AV_LOG_DEBUG, "SEEKTO: %"PRId64"\n", pos2);
+    av_log(NULL, AV_LOG_DEBUG, "SEEKTO: %"PRId64"\n", pos2);
     pos = find_startcode(s->pb, SYNCPOINT_STARTCODE, pos2);
     avio_seek(s->pb, pos, SEEK_SET);
     nut->last_syncpoint_pos = pos;
-    av_log(s, AV_LOG_DEBUG, "SP: %"PRId64"\n", pos);
+    av_log(NULL, AV_LOG_DEBUG, "SP: %"PRId64"\n", pos);
     if (pos2 > pos || pos2 + 15 < pos)
-        av_log(s, AV_LOG_ERROR, "no syncpoint at backptr pos\n");
+        av_log(NULL, AV_LOG_ERROR, "no syncpoint at backptr pos\n");
     for (i = 0; i < s->nb_streams; i++)
         nut->stream[i].skip_until_key_frame = 1;
 

@@ -41,11 +41,8 @@ static int pnm_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     int next = END_NOT_FOUND;
     int skip = 0;
 
-    if (pc->overread > 0) {
-        memmove(pc->buffer + pc->index, pc->buffer + pc->overread_index, pc->overread);
-        pc->index          += pc->overread;
-        pc->overread_index += pc->overread;
-        pc->overread = 0;
+    for (; pc->overread > 0; pc->overread--) {
+        pc->buffer[pc->index++]= pc->buffer[pc->overread_index++];
     }
 
     if (pnmpc->remaining_bytes) {
@@ -95,11 +92,8 @@ retry:
             sync = bs;
             c = *bs++;
             if (c == '#')  {
-                uint8_t *match = memchr(bs, '\n', end-bs);
-                if (match)
-                    bs = match + 1;
-                else
-                    break;
+                while (c != '\n' && bs < end)
+                    c = *bs++;
             } else if (c == 'P') {
                 next = bs - pnmctx.bytestream_start + skip - 1;
                 pnmpc->ascii_scan = 0;
@@ -109,10 +103,8 @@ retry:
         if (next == END_NOT_FOUND)
             pnmpc->ascii_scan = sync - pnmctx.bytestream + skip;
     } else {
-        int ret = av_image_get_buffer_size(avctx->pix_fmt, avctx->width, avctx->height, 1);
-        next = pnmctx.bytestream - pnmctx.bytestream_start + skip;
-        if (ret >= 0 && next + (uint64_t)ret <= INT_MAX)
-            next += ret;
+        next = pnmctx.bytestream - pnmctx.bytestream_start + skip
+               + av_image_get_buffer_size(avctx->pix_fmt, avctx->width, avctx->height, 1);
     }
     if (next != END_NOT_FOUND && pnmctx.bytestream_start != buf + skip)
         next -= pc->index;

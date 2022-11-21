@@ -162,8 +162,8 @@ enum AVFrameSideDataType {
     /**
      * Timecode which conforms to SMPTE ST 12-1. The data is an array of 4 uint32_t
      * where the first uint32_t describes how many (1-3) of the other timecodes are used.
-     * The timecode format is described in the documentation of av_timecode_get_smpte_from_framenum()
-     * function in libavutil/timecode.h.
+     * The timecode format is described in the av_timecode_get_smpte_from_framenum()
+     * function in libavutil/timecode.c.
      */
     AV_FRAME_DATA_S12M_TIMECODE,
 
@@ -180,24 +180,34 @@ enum AVFrameSideDataType {
      */
     AV_FRAME_DATA_REGIONS_OF_INTEREST,
 
+    // NETINT: user data unregistered SEI data
     /**
-     * Encoding parameters for a video frame, as described by AVVideoEncParams.
+     * This side data takes SEI payload type USER_DATA_UNREGISTERED.
+     * There will be no byte reordering.
+     * Usually this payload would be: 16B UUID + other payload Bytes.
      */
-    AV_FRAME_DATA_VIDEO_ENC_PARAMS,
+    AV_FRAME_DATA_NETINT_UDU_SEI,
 
+    // NETINT: custom SEI data
     /**
-     * User data unregistered metadata associated with a video frame.
-     * This is the H.26[45] UDU SEI message, and shouldn't be used for any other purpose
-     * The data is stored as uint8_t in AVFrameSideData.data which is 16 bytes of
-     * uuid_iso_iec_11578 followed by AVFrameSideData.size - 16 bytes of user_data_payload_byte.
+     * This side data takes SEI payload custom types.
+     * There will be no byte reordering.
+     * Usually this payload would be: 1B Custom SEI type + 16B UUID + other payload Bytes.
      */
-    AV_FRAME_DATA_SEI_UNREGISTERED,
+    AV_FRAME_DATA_NETINT_CUSTOM_SEI,
 
+    // NETINT: custom bitrate adjustment
     /**
-     * Film grain parameters for a frame, described by AVFilmGrainParams.
-     * Must be present for every frame which should have film grain applied.
+     * This side data takes int32_t type data as payload which indicates the new target bitrate value.
      */
-    AV_FRAME_DATA_FILM_GRAIN_PARAMS,
+    AV_FRAME_DATA_NETINT_BITRATE,
+
+    // NETINT: long term reference frame support
+    /**
+     * This side data is a struct of AVNetintLongTermRef that specifies a
+     * frame's support of long term reference frame.
+     */
+    AV_FRAME_DATA_NETINT_LONG_TERM_REF,
 };
 
 enum AVActiveFormatDescription {
@@ -220,11 +230,7 @@ enum AVActiveFormatDescription {
 typedef struct AVFrameSideData {
     enum AVFrameSideDataType type;
     uint8_t *data;
-#if FF_API_BUFFER_SIZE_T
     int      size;
-#else
-    size_t   size;
-#endif
     AVDictionary *metadata;
     AVBufferRef *buf;
 } AVFrameSideData;
@@ -284,6 +290,20 @@ typedef struct AVRegionOfInterest {
      */
     AVRational qoffset;
 } AVRegionOfInterest;
+
+/**
+ * NETINT: Structure describing long term reference frame support.
+ *
+ */
+typedef struct AVNetintLongTermRef {
+  // A flag for the current picture to be used as a long term reference
+  // picture later at other pictures' encoding
+  uint8_t use_cur_src_as_long_term_pic;
+
+  // A flag to use a long term reference picture in DPB when encoding the
+  // current picture
+  uint8_t use_long_term_ref;
+} AVNetintLongTermRef;
 
 /**
  * This structure describes decoded (raw) audio or video data.
@@ -917,11 +937,7 @@ AVBufferRef *av_frame_get_plane_buffer(AVFrame *frame, int plane);
  */
 AVFrameSideData *av_frame_new_side_data(AVFrame *frame,
                                         enum AVFrameSideDataType type,
-#if FF_API_BUFFER_SIZE_T
                                         int size);
-#else
-                                        size_t size);
-#endif
 
 /**
  * Add a new side data to a frame from an existing AVBufferRef
@@ -947,7 +963,8 @@ AVFrameSideData *av_frame_get_side_data(const AVFrame *frame,
                                         enum AVFrameSideDataType type);
 
 /**
- * Remove and free all side data instances of the given type.
+ * If side data of the supplied type exists in the frame, free it and remove it
+ * from the frame.
  */
 void av_frame_remove_side_data(AVFrame *frame, enum AVFrameSideDataType type);
 

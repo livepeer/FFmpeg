@@ -69,11 +69,6 @@
 #   include "mips/aacdec_mips.h"
 #endif
 
-DECLARE_ALIGNED(32, static INTFLOAT, AAC_RENAME(sine_120))[120];
-DECLARE_ALIGNED(32, static INTFLOAT, AAC_RENAME(sine_960))[960];
-DECLARE_ALIGNED(32, static INTFLOAT, AAC_RENAME(aac_kbd_long_960))[960];
-DECLARE_ALIGNED(32, static INTFLOAT, AAC_RENAME(aac_kbd_short_120))[120];
-
 static av_always_inline void reset_predict_state(PredictorState *ps)
 {
     ps->r0   = 0.0f;
@@ -414,8 +409,6 @@ static int read_stream_mux_config(struct LATMContext *latmctx,
             } else {
                 int esc;
                 do {
-                    if (get_bits_left(gb) < 9)
-                        return AVERROR_INVALIDDATA;
                     esc = get_bits(gb, 1);
                     skip_bits(gb, 8);
                 } while (esc);

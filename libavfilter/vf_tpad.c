@@ -181,7 +181,7 @@ static int config_input(AVFilterLink *inlink)
     return 0;
 }
 
-static av_cold void uninit(AVFilterContext *ctx)
+static void uninit(AVFilterContext *ctx)
 {
     TPadContext *s = ctx->priv;
 

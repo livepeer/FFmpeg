@@ -70,7 +70,7 @@ static int read_desc_chunk(AVFormatContext *s)
 
     /* parse format description */
     st->codecpar->codec_type  = AVMEDIA_TYPE_AUDIO;
-    st->codecpar->sample_rate = av_clipd(av_int2double(avio_rb64(pb)), 0, INT_MAX);
+    st->codecpar->sample_rate = av_int2double(avio_rb64(pb));
     st->codecpar->codec_tag   = avio_rl32(pb);
     flags = avio_rb32(pb);
     caf->bytes_per_packet  = avio_rb32(pb);
@@ -78,9 +78,6 @@ static int read_desc_chunk(AVFormatContext *s)
     caf->frames_per_packet = avio_rb32(pb);
     st->codecpar->channels    = avio_rb32(pb);
     st->codecpar->bits_per_coded_sample = avio_rb32(pb);
-
-    if (caf->bytes_per_packet < 0 || caf->frames_per_packet < 0)
-        return AVERROR_INVALIDDATA;
 
     /* calculate bit rate for constant size packets */
     if (caf->frames_per_packet > 0 && caf->bytes_per_packet > 0) {
@@ -103,7 +100,6 @@ static int read_kuki_chunk(AVFormatContext *s, int64_t size)
 {
     AVIOContext *pb = s->pb;
     AVStream *st      = s->streams[0];
-    int ret;
 
     if (size < 0 || size > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE)
         return -1;
@@ -138,8 +134,9 @@ static int read_kuki_chunk(AVFormatContext *s, int64_t size)
             return AVERROR_INVALIDDATA;
         }
 
-        if ((ret = ff_alloc_extradata(st->codecpar, ALAC_HEADER)) < 0)
-            return ret;
+        av_freep(&st->codecpar->extradata);
+        if (ff_alloc_extradata(st->codecpar, ALAC_HEADER))
+            return AVERROR(ENOMEM);
 
         /* For the old style cookie, we skip 12 bytes, then read 36 bytes.
          * The new style cookie only contains the last 24 bytes of what was
@@ -177,8 +174,10 @@ static int read_kuki_chunk(AVFormatContext *s, int64_t size)
             return AVERROR_PATCHWELCOME;
         }
         avio_skip(pb, size);
-    } else if ((ret = ff_get_extradata(s, st->codecpar, pb, size)) < 0) {
-        return ret;
+    } else {
+        av_freep(&st->codecpar->extradata);
+        if (ff_get_extradata(s, st->codecpar, pb, size) < 0)
+            return AVERROR(ENOMEM);
     }
 
     return 0;
@@ -192,7 +191,6 @@ static int read_pakt_chunk(AVFormatContext *s, int64_t size)
     CafContext *caf   = s->priv_data;
     int64_t pos = 0, ccount, num_packets;
     int i;
-    int ret;
 
     ccount = avio_tell(pb);
 
@@ -204,20 +202,11 @@ static int read_pakt_chunk(AVFormatContext *s, int64_t size)
     st->nb_frames += avio_rb32(pb); /* priming frames */
     st->nb_frames += avio_rb32(pb); /* remainder frames */
 
-    if (caf->bytes_per_packet > 0 && caf->frames_per_packet > 0) {
-        st->duration = caf->frames_per_packet * num_packets;
-        pos          = caf-> bytes_per_packet * num_packets;
-    } else {
-        st->duration = 0;
-        for (i = 0; i < num_packets; i++) {
-            if (avio_feof(pb))
-                return AVERROR_INVALIDDATA;
-            ret = av_add_index_entry(s->streams[0], pos, st->duration, 0, 0, AVINDEX_KEYFRAME);
-            if (ret < 0)
-                return ret;
-            pos += caf->bytes_per_packet ? caf->bytes_per_packet : ff_mp4_read_descr_len(pb);
-            st->duration += caf->frames_per_packet ? caf->frames_per_packet : ff_mp4_read_descr_len(pb);
-        }
+    st->duration = 0;
+    for (i = 0; i < num_packets; i++) {
+        av_add_index_entry(s->streams[0], pos, st->duration, 0, 0, AVINDEX_KEYFRAME);
+        pos += caf->bytes_per_packet ? caf->bytes_per_packet : ff_mp4_read_descr_len(pb);
+        st->duration += caf->frames_per_packet ? caf->frames_per_packet : ff_mp4_read_descr_len(pb);
     }
 
     if (avio_tell(pb) - ccount > size) {
@@ -465,5 +454,5 @@ AVInputFormat ff_caf_demuxer = {
     .read_header    = read_header,
     .read_packet    = read_packet,
     .read_seek      = read_seek,
-    .codec_tag      = ff_caf_codec_tags_list,
+    .codec_tag      = (const AVCodecTag* const []){ ff_codec_caf_tags, 0 },
 };

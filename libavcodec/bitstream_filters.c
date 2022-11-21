@@ -22,10 +22,9 @@
 #include "libavutil/log.h"
 
 #include "avcodec.h"
-#include "bsf_internal.h"
+#include "bsf.h"
 
 extern const AVBitStreamFilter ff_aac_adtstoasc_bsf;
-extern const AVBitStreamFilter ff_av1_frame_merge_bsf;
 extern const AVBitStreamFilter ff_av1_frame_split_bsf;
 extern const AVBitStreamFilter ff_av1_metadata_bsf;
 extern const AVBitStreamFilter ff_chomp_bsf;
@@ -38,8 +37,11 @@ extern const AVBitStreamFilter ff_h264_metadata_bsf;
 extern const AVBitStreamFilter ff_h264_mp4toannexb_bsf;
 extern const AVBitStreamFilter ff_h264_redundant_pps_bsf;
 extern const AVBitStreamFilter ff_hapqa_extract_bsf;
+extern const AVBitStreamFilter ff_hevc_frame_split_bsf;
 extern const AVBitStreamFilter ff_hevc_metadata_bsf;
 extern const AVBitStreamFilter ff_hevc_mp4toannexb_bsf;
+extern const AVBitStreamFilter ff_hevc_rawtotile_bsf;
+extern const AVBitStreamFilter ff_hevc_tile_repack_bsf;
 extern const AVBitStreamFilter ff_imx_dump_header_bsf;
 extern const AVBitStreamFilter ff_mjpeg2jpeg_bsf;
 extern const AVBitStreamFilter ff_mjpega_dump_header_bsf;
@@ -49,11 +51,8 @@ extern const AVBitStreamFilter ff_mpeg4_unpack_bframes_bsf;
 extern const AVBitStreamFilter ff_mov2textsub_bsf;
 extern const AVBitStreamFilter ff_noise_bsf;
 extern const AVBitStreamFilter ff_null_bsf;
-extern const AVBitStreamFilter ff_opus_metadata_bsf;
-extern const AVBitStreamFilter ff_pcm_rechunk_bsf;
 extern const AVBitStreamFilter ff_prores_metadata_bsf;
 extern const AVBitStreamFilter ff_remove_extradata_bsf;
-extern const AVBitStreamFilter ff_setts_bsf;
 extern const AVBitStreamFilter ff_text2movsub_bsf;
 extern const AVBitStreamFilter ff_trace_headers_bsf;
 extern const AVBitStreamFilter ff_truehd_core_bsf;
@@ -97,7 +96,6 @@ const AVBitStreamFilter *av_bsf_get_by_name(const char *name)
     return NULL;
 }
 
-#if FF_API_CHILD_CLASS_NEXT
 const AVClass *ff_bsf_child_class_next(const AVClass *prev)
 {
     const AVBitStreamFilter *f = NULL;
@@ -112,19 +110,6 @@ const AVClass *ff_bsf_child_class_next(const AVClass *prev)
 
     /* find next filter with priv options */
     while ((f = av_bsf_iterate(&i))) {
-        if (f->priv_class)
-            return f->priv_class;
-    }
-    return NULL;
-}
-#endif
-
-const AVClass *ff_bsf_child_class_iterate(void **opaque)
-{
-    const AVBitStreamFilter *f;
-
-    /* find next filter with priv options */
-    while ((f = av_bsf_iterate(opaque))) {
         if (f->priv_class)
             return f->priv_class;
     }

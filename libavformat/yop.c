@@ -125,11 +125,14 @@ static int yop_read_packet(AVFormatContext *s, AVPacket *pkt)
     yop->video_packet.stream_index = 1;
 
     if (yop->video_packet.data) {
-        av_packet_move_ref(pkt, &yop->video_packet);
+        *pkt                   =  yop->video_packet;
+        yop->video_packet.data =  NULL;
+        yop->video_packet.buf  =  NULL;
+        yop->video_packet.size =  0;
         pkt->data[0]           =  yop->odd_frame;
         pkt->flags             |= AV_PKT_FLAG_KEY;
         yop->odd_frame         ^= 1;
-        return 0;
+        return pkt->size;
     }
     ret = av_new_packet(&yop->video_packet,
                         yop->frame_size - yop->audio_block_length);
@@ -163,7 +166,7 @@ static int yop_read_packet(AVFormatContext *s, AVPacket *pkt)
         av_shrink_packet(&yop->video_packet, yop->palette_size + ret);
 
     // Arbitrarily return the audio data first
-    return 0;
+    return yop->audio_block_length;
 
 err_out:
     av_packet_unref(&yop->video_packet);

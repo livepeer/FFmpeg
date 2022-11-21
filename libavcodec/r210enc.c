@@ -60,9 +60,9 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         uint16_t *srcb = (uint16_t *)srcb_line;
         for (j = 0; j < avctx->width; j++) {
             uint32_t pixel;
-            unsigned r = *srcr++;
-            unsigned g = *srcg++;
-            unsigned b = *srcb++;
+            uint16_t r = *srcr++;
+            uint16_t g = *srcg++;
+            uint16_t b = *srcb++;
             if (avctx->codec_id == AV_CODEC_ID_R210)
                 pixel = (r << 20) | (g << 10) | b;
             else
@@ -94,6 +94,7 @@ AVCodec ff_r210_encoder = {
     .init           = encode_init,
     .encode2        = encode_frame,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_GBRP10, AV_PIX_FMT_NONE },
+    .capabilities   = AV_CODEC_CAP_INTRA_ONLY,
 };
 #endif
 #if CONFIG_R10K_ENCODER
@@ -105,6 +106,7 @@ AVCodec ff_r10k_encoder = {
     .init           = encode_init,
     .encode2        = encode_frame,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_GBRP10, AV_PIX_FMT_NONE },
+    .capabilities   = AV_CODEC_CAP_INTRA_ONLY,
 };
 #endif
 #if CONFIG_AVRP_ENCODER
@@ -116,5 +118,6 @@ AVCodec ff_avrp_encoder = {
     .init           = encode_init,
     .encode2        = encode_frame,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_GBRP10, AV_PIX_FMT_NONE },
+    .capabilities   = AV_CODEC_CAP_INTRA_ONLY,
 };
 #endif

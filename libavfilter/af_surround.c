@@ -175,7 +175,7 @@ static int query_formats(AVFilterContext *ctx)
     if (ret)
         return ret;
 
-    ret = ff_channel_layouts_ref(layouts, &ctx->outputs[0]->incfg.channel_layouts);
+    ret = ff_channel_layouts_ref(layouts, &ctx->outputs[0]->in_channel_layouts);
     if (ret)
         return ret;
 
@@ -184,7 +184,7 @@ static int query_formats(AVFilterContext *ctx)
     if (ret)
         return ret;
 
-    ret = ff_channel_layouts_ref(layouts, &ctx->inputs[0]->outcfg.channel_layouts);
+    ret = ff_channel_layouts_ref(layouts, &ctx->inputs[0]->out_channel_layouts);
     if (ret)
         return ret;
 
@@ -1372,7 +1372,7 @@ static void filter_5_1_back(AVFilterContext *ctx)
     }
 }
 
-static av_cold int init(AVFilterContext *ctx)
+static int init(AVFilterContext *ctx)
 {
     AudioSurroundContext *s = ctx->priv;
     float overlap;
