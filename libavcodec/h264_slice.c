@@ -448,6 +448,16 @@ int ff_h264_update_thread_context(AVCodecContext *dst,
     }
     h->sei.unregistered.x264_build = h1->sei.unregistered.x264_build;
 
+    // NETINT: custom AVC SEI
+    h->custom_sei_type       = h1->custom_sei_type;
+
+    av_buffer_unref(&h->sei.ni_custom.buf_ref);
+    if (h1->sei.ni_custom.buf_ref) {
+        h->sei.ni_custom.buf_ref = av_buffer_ref(h1->sei.ni_custom.buf_ref);
+        if (!h->sei.ni_custom.buf_ref)
+            return AVERROR(ENOMEM);
+    }
+
     if (!h->cur_pic_ptr)
         return 0;
 
@@ -1343,6 +1353,16 @@ static int h264_export_frame_props(H264Context *h)
             av_dict_set(&out->metadata, "timecode", tcbuf, 0);
         }
         h->sei.picture_timing.timecode_cnt = 0;
+    }
+
+    // NETINT: custom AVC SEI
+    if (h->sei.ni_custom.buf_ref) {
+        H264SEINICustom *ni_custom = &h->sei.ni_custom;
+
+        AVFrameSideData *sd = av_frame_new_side_data_from_buf(cur->f, AV_FRAME_DATA_NETINT_CUSTOM_SEI, ni_custom->buf_ref);
+        if (!sd)
+            av_buffer_unref(&ni_custom->buf_ref);
+        ni_custom->buf_ref = NULL;
     }
 
     return 0;

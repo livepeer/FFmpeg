@@ -220,6 +220,11 @@ enum AVPixelFormat {
      *  mfxFrameSurface1 structure.
      */
     AV_PIX_FMT_QSV,
+    /*
+     * NETINT: HW acceleration through NI, data[3] contains a pointer to the
+     * ni_logan_hwframe_surface_t structure, for Logan.
+    */
+    AV_PIX_FMT_NI_LOGAN,
     /**
      * HW acceleration though MMAL, data[3] contains a pointer to the
      * MMAL_BUFFER_HEADER_T structure.

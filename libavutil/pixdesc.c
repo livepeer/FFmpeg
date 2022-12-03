@@ -2085,6 +2085,13 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         .name = "qsv",
         .flags = AV_PIX_FMT_FLAG_HWACCEL,
     },
+    /**
+     * NETINT: AV_PIX_FMT_NI_LOGAN pixel format for Logan HW frame.
+     */
+    [AV_PIX_FMT_NI_LOGAN] = {
+        .name = "ni_logan",
+        .flags = AV_PIX_FMT_FLAG_HWACCEL,
+    },
     [AV_PIX_FMT_MEDIACODEC] = {
         .name = "mediacodec",
         .flags = AV_PIX_FMT_FLAG_HWACCEL,

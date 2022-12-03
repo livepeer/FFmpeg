@@ -87,6 +87,12 @@ typedef struct HEVCSEIAlternativeTransfer {
     int preferred_transfer_characteristics;
 } HEVCSEIAlternativeTransfer;
 
+typedef struct HEVCSEINICustom {
+    AVBufferRef *buf_ref;
+    int location;
+    int type;
+} HEVCSEINICustom;
+
 typedef struct HEVCSEITimeCode {
     int      present;
     uint8_t  num_clock_ts;
@@ -120,6 +126,8 @@ typedef struct HEVCSEI {
     int active_seq_parameter_set_id;
     HEVCSEIAlternativeTransfer alternative_transfer;
     HEVCSEITimeCode timecode;
+    // NETINT: NI HEVC custom SEI
+    HEVCSEINICustom ni_custom;
 } HEVCSEI;
 
 struct HEVCParamSets;

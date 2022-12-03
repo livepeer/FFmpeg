@@ -165,6 +165,11 @@ typedef struct H264SEIAlternativeTransfer {
     int preferred_transfer_characteristics;
 } H264SEIAlternativeTransfer;
 
+typedef struct H264SEINICustom {
+    int type;
+    AVBufferRef *buf_ref;
+} H264SEINICustom;
+
 typedef struct H264SEIContext {
     H264SEIPictureTiming picture_timing;
     H264SEIAFD afd;
@@ -176,6 +181,8 @@ typedef struct H264SEIContext {
     H264SEIDisplayOrientation display_orientation;
     H264SEIGreenMetaData green_metadata;
     H264SEIAlternativeTransfer alternative_transfer;
+    // NETINT: NI AVC custom SEI
+    H264SEINICustom ni_custom;
 } H264SEIContext;
 
 struct H264ParamSets;

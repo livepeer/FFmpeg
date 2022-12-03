@@ -551,6 +551,9 @@ typedef struct H264Context {
 
     int enable_er;
 
+    // NETINT: option as custom SEI type setting
+    int custom_sei_type;  ///< NI custom SEI type
+
     H264SEIContext sei;
 
     AVBufferPool *qscale_table_pool;
