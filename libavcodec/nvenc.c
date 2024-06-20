@@ -982,7 +982,7 @@ static av_cold int nvenc_recalc_surfaces(AVCodecContext *avctx)
 
     // Output in the worst case will only start when the surface buffer is completely full.
     // Hence we need to keep at least the max amount of surfaces plus the max reorder delay around.
-    ctx->frame_data_array_nb = ctx->nb_surfaces + ctx->encode_config.frameIntervalP - 1;
+    ctx->frame_data_array_nb = FFMAX(ctx->nb_surfaces, ctx->nb_surfaces + ctx->encode_config.frameIntervalP - 1);
 
     return 0;
 }
