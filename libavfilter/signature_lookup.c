@@ -37,6 +37,8 @@
 #define STATUS_END_REACHED 1
 #define STATUS_BEGIN_REACHED 2
 
+#include "libavutil/file_open.h"
+
 static void sll_free(MatchingInfo **sll)
 {
     while (*sll) {
@@ -630,7 +632,10 @@ static int xml_export(AVFilterContext *ctx, StreamContext *sc, const char* filen
     FILE* f;
     unsigned int pot3[5] = { 3*3*3*3, 3*3*3, 3*3, 3, 1 };
 
-    f = fopen(filename, "w");
+    if (!sc->coarseend->last)
+        return AVERROR(EINVAL); // No frames ?
+
+    f = avpriv_fopen_utf8(filename, "w");
     if (!f) {
         int err = AVERROR(EINVAL);
         char buf[128];
@@ -744,7 +749,7 @@ static int binary_export(AVFilterContext *ctx, StreamContext *sc, const char* fi
     if (!buffer)
         return AVERROR(ENOMEM);
 
-    f = fopen(filename, "wb");
+    f = avpriv_fopen_utf8(filename, "wb");
     if (!f) {
         int err = AVERROR(EINVAL);
         char buf[128];
@@ -828,14 +833,10 @@ static int calc_signature(AVFilterContext *ctx, StreamContext *sc, FineSignature
         int64_t* elemsignature;
         uint64_t* sortsignature;
 
-        elemsignature = av_malloc_array(elemcat->elem_count, sizeof(int64_t));
+        elemsignature = av_malloc_array(elemcat->elem_count, 2 * sizeof(int64_t));
         if (!elemsignature)
             return AVERROR(ENOMEM);
-        sortsignature = av_malloc_array(elemcat->elem_count, sizeof(int64_t));
-        if (!sortsignature) {
-            av_freep(&elemsignature);
-            return AVERROR(ENOMEM);
-        }
+        sortsignature = elemsignature + elemcat->elem_count;
 
         for (j = 0; j < elemcat->elem_count; j++) {
             blocksum = 0;
@@ -885,7 +886,6 @@ static int calc_signature(AVFilterContext *ctx, StreamContext *sc, FineSignature
             f++;
         }
         av_freep(&elemsignature);
-        av_freep(&sortsignature);
     }
 
     /* confidence */

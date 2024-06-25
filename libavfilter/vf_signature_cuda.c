@@ -1,5 +1,4 @@
 #include <float.h>
-#include <stdio.h>
 #include <string.h>
 
 #include "libavutil/avstring.h"
@@ -20,6 +19,7 @@
 #include "video.h"
 #include "signature.h"
 #include "signature_lookup.c"
+#include "cuda/load_helper.h"
 
 #define DIV_UP(a, b) ( ((a) + (b) - 1) / (b) )
 #define BLOCKX 32
@@ -71,18 +71,6 @@ static const enum AVPixelFormat supported_formats[] = {
     AV_PIX_FMT_YUV422P,
 };
 
-static int cudasign_query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pixel_formats[] = {
-        AV_PIX_FMT_CUDA, AV_PIX_FMT_NONE,
-    };
-    AVFilterFormats *pix_fmts = ff_make_format_list(pixel_formats);
-    if (!pix_fmts)
-        return AVERROR(ENOMEM);
-
-    return ff_set_common_formats(ctx, pix_fmts);
-}
-
 static int format_is_supported(enum AVPixelFormat fmt)
 {
     int i;
@@ -111,7 +99,8 @@ static av_cold int cudasign_config_props(AVFilterLink *outlink)
     enum AVPixelFormat in_format;
     StreamContext *sc;
 
-    extern char vf_signature_cuda_ptx[];
+    extern const unsigned char ff_vf_signature_cuda_ptx_data[];
+    extern const unsigned int ff_vf_signature_cuda_ptx_len;
     int ret;
 
     s->hwctx = device_hwctx;
@@ -121,7 +110,7 @@ static av_cold int cudasign_config_props(AVFilterLink *outlink)
     if (ret < 0)
         goto fail;
 
-    ret = CHECK_CU(cu->cuModuleLoadData(&s->cu_module, vf_signature_cuda_ptx));
+    ret = ff_cuda_load_module(ctx, device_hwctx, &s->cu_module, ff_vf_signature_cuda_ptx_data, ff_vf_signature_cuda_ptx_len);
     if (ret < 0)
         goto fail;
     
@@ -458,9 +447,8 @@ static const AVFilterPad cudasign_inputs[] = {
         .name        = "default",
         .type        = AVMEDIA_TYPE_VIDEO,
         .filter_frame = cudasign_filter_frame,
-        .get_video_buffer = get_pass_video_buffer,
+        .get_buffer.video = get_pass_video_buffer,
     },
-    { NULL }
 };
 
 static const AVFilterPad cudasign_outputs[] = {
@@ -469,7 +457,6 @@ static const AVFilterPad cudasign_outputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .config_props = cudasign_config_props,
     },
-    { NULL }
 };
 
 AVFilter ff_vf_signature_cuda = {
@@ -478,13 +465,13 @@ AVFilter ff_vf_signature_cuda = {
 
     .init          = cudasign_init,
     .uninit        = cudasign_uninit,
-    .query_formats = cudasign_query_formats,
 
     .priv_size = sizeof(CUDASignContext),
     .priv_class = &cudasign_class,
 
-    .inputs    = cudasign_inputs,
-    .outputs   = cudasign_outputs,
+    FILTER_INPUTS(cudasign_inputs),
+    FILTER_OUTPUTS(cudasign_outputs),
+    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_CUDA),
 
     .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };
