@@ -363,6 +363,19 @@ static int h264_mp4toannexb_filter(AVBSFContext *ctx, AVPacket *opkt)
             if (!new_idr && unit_type == H264_NAL_IDR_SLICE && (buf[1] & 0x80))
                 new_idr = 1;
 
+            /* If this is a buffering period SEI without a corresponding sps/pps
+             * then prepend any existing sps/pps before the SEI */
+            if (unit_type == H264_NAL_SEI && buf[1] == 0 && !sps_seen && !pps_seen) {
+                if (s->sps_size) {
+                    count_or_copy(&out, &out_size, s->sps, s->sps_size, PS_OUT_OF_BAND, j);
+                    sps_seen = 1;
+                }
+                if (s->pps_size) {
+                    count_or_copy(&out, &out_size, s->pps, s->pps_size, PS_OUT_OF_BAND, j);
+                    pps_seen = 1;
+                }
+            }
+
             /* prepend only to the first type 5 NAL unit of an IDR picture, if no sps/pps are already present */
             if (new_idr && unit_type == H264_NAL_IDR_SLICE && !sps_seen && !pps_seen) {
                 if (s->sps_size)
