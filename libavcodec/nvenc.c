@@ -982,7 +982,7 @@ static av_cold int nvenc_recalc_surfaces(AVCodecContext *avctx)
 
     // Output in the worst case will only start when the surface buffer is completely full.
     // Hence we need to keep at least the max amount of surfaces plus the max reorder delay around.
-    ctx->frame_data_array_nb = ctx->nb_surfaces + ctx->encode_config.frameIntervalP - 1;
+    ctx->frame_data_array_nb = FFMAX(ctx->nb_surfaces, ctx->nb_surfaces + ctx->encode_config.frameIntervalP - 1);
 
     return 0;
 }
@@ -2658,6 +2658,11 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
         return AVERROR(EINVAL);
 
     if (frame && frame->buf[0]) {
+        if (ctx->encoder_flushing) {
+            ctx->encoder_flushing = 0;
+            av_fifo_reset2(ctx->timestamp_list);
+        }
+
         in_surf = get_free_frame(ctx);
         if (!in_surf)
             return AVERROR(EAGAIN);
@@ -2716,6 +2721,7 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
         nvenc_codec_specific_pic_params(avctx, &pic_params, ctx->sei_data, sei_count);
     } else {
         pic_params.encodePicFlags = NV_ENC_PIC_FLAG_EOS;
+        ctx->encoder_flushing = 1;
     }
 
     res = nvenc_push_context(avctx);
@@ -2765,8 +2771,11 @@ int ff_nvenc_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
 
     if (!frame->buf[0]) {
         res = ff_encode_get_frame(avctx, frame);
-        if (res < 0 && res != AVERROR_EOF)
+        if (res == AVERROR_EOF || (ctx->encoder_flushing && res == AVERROR(EAGAIN))) {
+            // flushing mode, continue to send packets
+        } else if (res < 0) {
             return res;
+        }
     }
 
     res = nvenc_send_frame(avctx, frame);
@@ -2776,7 +2785,7 @@ int ff_nvenc_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
     } else
         av_frame_unref(frame);
 
-    if (output_ready(avctx, avctx->internal->draining)) {
+    if (output_ready(avctx, ctx->encoder_flushing)) {
         av_fifo_read(ctx->output_surface_ready_queue, &tmp_out_surf, 1);
 
         res = nvenc_push_context(avctx);
@@ -2804,8 +2813,5 @@ int ff_nvenc_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
 
 av_cold void ff_nvenc_encode_flush(AVCodecContext *avctx)
 {
-    NvencContext *ctx = avctx->priv_data;
-
     nvenc_send_frame(avctx, NULL);
-    av_fifo_reset2(ctx->timestamp_list);
 }

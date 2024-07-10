@@ -3895,6 +3895,9 @@ sharpness_vaapi_filter_deps="vaapi"
 showcqt_filter_deps="avformat swscale"
 showcqt_filter_suggest="libfontconfig libfreetype"
 signature_filter_deps="gpl avcodec avformat"
+signature_cuda_filter_deps="ffnvcodec gpl avcodec avformat"
+signature_cuda_filter_deps_any="cuda_nvcc cuda_llvm gpl avcodec avformat"
+sinc_filter_select="rdft"
 smartblur_filter_deps="gpl swscale"
 sobel_opencl_filter_deps="opencl"
 sofalizer_filter_deps="libmysofa"
@@ -4627,10 +4630,10 @@ fi
 
 if enabled cuda_nvcc; then
     nvcc_default="nvcc"
-    nvccflags_default="-gencode arch=compute_30,code=sm_30 -O2"
+    nvccflags_default="-gencode arch=compute_52,code=sm_52 -O2"
 else
     nvcc_default="clang"
-    nvccflags_default="--cuda-gpu-arch=sm_30 -O2"
+    nvccflags_default="--cuda-gpu-arch=sm_52 -O2"
     NVCC_C=""
 fi
 

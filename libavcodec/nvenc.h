@@ -205,6 +205,8 @@ typedef struct NvencContext
     NV_ENC_SEI_PAYLOAD *sei_data;
     int sei_data_size;
 
+    int encoder_flushing;
+
     struct {
         void *ptr;
         int ptr_index;
