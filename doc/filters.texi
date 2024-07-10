@@ -22703,6 +22703,7 @@ To calculate SI/TI metrics and print summary:
 @example
 ffmpeg -i input.mp4 -vf siti=print_summary=1 -f null -
 @end example
+@end itemize
 
 @anchor{smartblur}
 @section smartblur
